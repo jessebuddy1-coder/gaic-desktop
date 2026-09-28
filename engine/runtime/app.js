@@ -13,13 +13,10 @@
   let running = false;
   let autoRunAfterPick = false;
 
-  // The bundled image model generalizes better than the retired CIFAKE v1
-  // but remains a likelihood signal, not proof; scores stay evidence-only.
-  // The repository's recorded evaluation found that the old 66% cutoff falsely
-  // flagged too many real photographs. GAIC therefore uses one deliberately
-  // conservative high-warning band and a separately worded elevated-evidence
-  // band. Neither claims that a low score proves an image is authentic. Keep
-  // this policy synchronized with test/honesty.mjs.
+  // Every completed check ends with a lean and a confidence level (see the
+  // decisive result layer below). The 99/95 bands remain the technical
+  // warning bands named in the evidence read. Keep this policy synchronized
+  // with test/honesty.mjs.
   const IMAGE_AI_BAND = 99;
   const IMAGE_AI_ELEVATED_BAND = 95;
   const IMAGE_REAL_BAND = null;
@@ -41,12 +38,96 @@
   }
 
   function imageSignalVerdict(rawPercent) {
-    if (!Number.isFinite(rawPercent)) return "Model result is inconclusive";
+    if (!Number.isFinite(rawPercent)) return null;
     if (rawPercent >= IMAGE_AI_BAND) return "High AI-model signal — verify";
     if (rawPercent >= IMAGE_AI_ELEVATED_BAND) {
       return "Elevated AI-model signal — verify";
     }
-    return "Model result is inconclusive";
+    return "Model signal below warning bands";
+  }
+
+  // ---------- decisive result layer ----------
+  // Every completed check ends with a lean and a confidence level: text leans
+  // AI-written or human-written; photos, screenshots, video, and screens lean
+  // AI-generated or real. Leans come from calibrated evidence, and each
+  // confidence level's share of correct leans was measured on data the models
+  // never trained on (models/GAIC-TEXT-MODEL.md, models/AICHECK-IMAGE-MODEL.md).
+  // Genuine failures (unreadable file, too little text, quota) stay
+  // kind:"error" and are never given a lean.
+  const LEAN_WORDS = Object.freeze({
+    ai: Object.freeze({ text: "AI-written", media: "AI-generated" }),
+    human: Object.freeze({ text: "human-written", media: "real" }),
+    real: Object.freeze({ text: "human-written", media: "real" }),
+  });
+  const CONFIDENCE_LEVELS = Object.freeze(["high", "medium", "low"]);
+
+  function leanHeadline(kind, lean, confidence) {
+    const words = LEAN_WORDS[lean];
+    if (!words || !CONFIDENCE_LEVELS.includes(confidence)) return null;
+    return (confidence === "low" ? "Leans " : "Likely ") +
+      (kind === "text" ? words.text : words.media) + " — " + confidence + " confidence";
+  }
+
+  function applyDecision(out, decision) {
+    if (!out || !decision) return out;
+    const headline = leanHeadline(out.kind, decision.lean, decision.confidence);
+    const percent = Number(decision.aiLikelihood);
+    if (!headline || !Number.isFinite(percent)) return out;
+    out.technicalVerdict = out.verdict || "";
+    out.verdict = headline;
+    out.lean = decision.lean;
+    out.confidence = decision.confidence;
+    out.score = Math.max(1, Math.min(99, Math.round(percent)));
+    out.metricLabel = "AI likelihood";
+    return out;
+  }
+
+  function leanSentence(out) {
+    if (!out || !out.lean) return "";
+    const subject = out.kind === "text" ? "this text is" : out.kind === "video" ? "this footage is" : "this image is";
+    const words = LEAN_WORDS[out.lean] || {};
+    const noun = out.kind === "text" ? words.text : words.media;
+    return "GAIC's read: " + subject + " " + (out.confidence === "low" ? "leaning " : "likely ") + noun +
+      " (" + out.confidence + " confidence), with an estimated " + out.score + "% AI likelihood.";
+  }
+
+  function clampedLogOdds(probability) {
+    const q = Math.min(0.995, Math.max(0.005, probability));
+    return Math.log(q / (1 - q));
+  }
+
+  function medianOf(values) {
+    const sorted = values.slice().sort((left, right) => left - right);
+    const mid = sorted.length >> 1;
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  // Video and screen frames: the typical (median) frame decides, in log-odds,
+  // using each frame's calibrated decision-head probability; frames without one
+  // fall back to the engine v2 raw scores. A validated credential still decides
+  // outright through decideImageLean.
+  function frameDecision(frames, provenance) {
+    const usable = frames.filter((frame) => frame && Number.isFinite(frame.pct));
+    if (!usable.length) return null;
+    const calibrated = usable.every((frame) => Number.isFinite(frame.probability));
+    const probability = calibrated
+      ? 1 / (1 + Math.exp(-medianOf(usable.map((frame) => clampedLogOdds(frame.probability)))))
+      : null;
+    const rawScore = calibrated ? probability * 100 : medianOf(usable.map((frame) => frame.pct));
+    const pixel = { available: true, rawScore, probability, scan: "direct-v5",
+      cuts: calibrated ? usable[0].cuts || null : null,
+      elevatedBand: IMAGE_AI_ELEVATED_BAND, warningBand: IMAGE_AI_BAND };
+    const verdictModule = window.ProvenanceVerdict;
+    let lean = null;
+    if (verdictModule && typeof verdictModule.decideImageLean === "function") {
+      lean = verdictModule.decideImageLean({ provenance: provenance || {}, pixel });
+    }
+    if (!lean) {
+      const p = calibrated ? probability : Math.max(0.01, Math.min(0.99, rawScore / 100));
+      lean = { lean: p >= 0.5 ? "ai" : "real", confidence: "low", probabilityAi: p };
+    }
+    return { lean: lean.lean, confidence: lean.confidence, aiLikelihood: lean.probabilityAi * 100,
+      calibrated, frames: usable.length };
   }
 
   function setCheckButtonLabel() {
@@ -441,7 +522,8 @@
     if (!engine || !engine.model || typeof engine.analyze !== "function") return null;
     let result = null;
     try { result = engine.analyze(t); } catch (_) { result = null; }
-    if (!result || !Number.isFinite(result.score) || !TEXT_BAND_VERDICTS[result.band]) return null;
+    if (!result || !Number.isFinite(result.logit) || !TEXT_BAND_VERDICTS[result.band] ||
+        !result.decision) return null;
     const parts = [];
     parts.push("GAIC Text Model v2 measured " + result.passages + " passage" + (result.passages === 1 ? "" : "s") +
       " on this device" + (result.passages > 1
@@ -452,11 +534,14 @@
     if (result.wordChoice !== "neutral") {
       parts.push("Overall word choice leaned " + (result.wordChoice === "ai" ? "machine-like" : "human-like") + ".");
     }
-    parts.push("This signal is not a probability. On public research collections it never trained on, its top band flagged 0–2% of human-written samples and it still missed many AI samples, so it can be wrong in either direction. It is English-focused and can be unfair to non-native, translated, academic, formulaic, or heavily edited writing.");
-    return { kind: "text", score: result.score, metricLabel: "Text-pattern signal",
+    parts.push("How sure: on public research collections it never trained on, about 3–5% of human-written documents leaned AI, and it caught about 64–79% of AI-written documents. High-confidence AI leans were right about 98% of the time. It is English-focused and can be unfair to non-native, translated, academic, formulaic, or heavily edited writing.");
+    const out = { kind: "text", score: result.score, metricLabel: "Text-pattern signal",
       verdict: TEXT_BAND_VERDICTS[result.band], explain: parts.join(" "),
       textModel: String(result.version || "").slice(0, 80),
-      guidance: "Treat this as a prompt to review, never an answer. Check drafts, citations, document history, and the author's explanation before drawing a conclusion." };
+      guidance: "Use this as a strong clue, not proof. If it matters, check drafts, citations, document history, and the author's explanation." };
+    applyDecision(out, result.decision);
+    out.explain = leanSentence(out) + " " + out.explain;
+    return out;
   }
 
   function analyzeText(t) {
@@ -465,7 +550,7 @@
     const text = normalizeTextForAnalysis(t).trim();
     const words = text.split(/\s+/).filter(Boolean);
     if (text.length < MIN_TEXT_CHARACTERS) {
-      return { kind: "text", score: null, verdict: "Sample too short for a score",
+      return { kind: "error", score: null, verdict: "Sample too short for a score",
         explain: "GAIC does not score text below " + MIN_TEXT_CHARACTERS.toLocaleString() +
           " characters because short-text detection is especially unreliable. Current sample: " +
           text.length.toLocaleString() + " characters.",
@@ -474,15 +559,15 @@
     }
     const sentences = text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
     if (sentences.length < 3) {
-      return { kind: "text", score: null, verdict: "Need several complete sentences",
+      return { kind: "error", score: null, verdict: "Need several complete sentences",
         explain: "This sample is long enough, but it has fewer than three sentence boundaries. Lists, code, and repeated fragments cannot be reviewed meaningfully by this heuristic.",
         guidance: "Use continuous English prose, then corroborate any result with drafts, citations, and source history.",
         countsTowardLimit: false };
     }
     const lower = words.map(w => w.toLowerCase().replace(/[^a-z']/g, "")).filter(Boolean);
     if (!lower.length || lower.length / words.length < 0.7) {
-      return { kind: "text", score: null, verdict: "English prose required",
-        explain: "This experimental pattern review only supports English prose. GAIC will not invent a score for a sample it is not designed to assess.",
+      return { kind: "error", score: null, verdict: "English prose required",
+        explain: "The text model only supports English prose, so this sample was not scored.",
         guidance: "Review the original source, drafts, citations, and document history instead.",
         countsTowardLimit: false };
     }
@@ -522,11 +607,14 @@
     else if (score < 66) verdict = "Mixed writing patterns";
     else verdict = "Several formulaic patterns matched";
     note = `Descriptive components — sentence-length similarity ${(burstiness*100|0)}/100, vocabulary-repetition cue ${(diversitySignal*100|0)}/100, contraction-use cue ${(contractionSignal*100|0)}/100, and ${hits} formulaic phrase match${hits===1?"":"es"}. ` +
-      `This signal is not a probability and has no validated accuracy rate. It is English-focused and can be unfair to non-native, translated, academic, formulaic, or heavily edited writing.`;
-    return { kind: "text", score, metricLabel: "Text-pattern signal", verdict, explain: note,
+      `The trained text model was unavailable on this device, so this read comes from the older built-in heuristic and is always low confidence. It is English-focused and can be unfair to non-native, translated, academic, formulaic, or heavily edited writing.`;
+    const fallback = { kind: "text", score, metricLabel: "Text-pattern signal", verdict, explain: note,
       mediaSummary: "What I'm looking at: " + text.length.toLocaleString() + " characters of continuous English prose — about " +
         words.length.toLocaleString() + " words across " + sentences.length.toLocaleString() + " sentences.",
-      guidance: "Treat this as a prompt to review, never an answer. Check drafts, citations, document history, and the author's explanation before drawing a conclusion." };
+      guidance: "Use this as a weak clue, not proof. Check drafts, citations, document history, and the author's explanation." };
+    applyDecision(fallback, { lean: score >= 50 ? "ai" : "human", confidence: "low", aiLikelihood: score });
+    fallback.explain = leanSentence(fallback) + " " + fallback.explain;
+    return fallback;
   }
 
   // ---------- friendly one-liner about the checked media ----------
@@ -778,7 +866,8 @@
     let score = null, rawModelScore = null, metricLabel = "Image-model score";
     let imageRegionScores = [];
     let uncalibratedCompositeFrame = false;
-    let verdict = "No decisive image signal", parts = [];
+    let headReading = null, scanKind = "direct-v5";
+    let verdict = "No origin record or metadata clue found", parts = [];
     if (derivedFromHEIF) {
       parts.push("Original HEIC/HEIF limit: GAIC made a bounded JPEG derivative locally for the visual model. The original file's Content Credentials and EXIF/XMP metadata were not evaluated, and their presence or absence cannot be inferred from this derivative.");
     } else if (locallyDerived) {
@@ -791,12 +880,12 @@
       parts.push("Content Credentials: provenance data was found but failed validation. Do not rely on its claims; the file may be damaged, altered after signing, malformed, or use a credential this validator cannot verify.");
     } else if (provenance.status === "unavailable") {
       parts.push(hasC2PA
-        ? "Content Credentials: C2PA/JUMBF structure was detected, but the local validator could not complete this check. No credential-validity or signer-trust conclusion is available."
-        : "Content Credentials: the local validator could not complete this check. No provenance, credential-validity, or signer-trust conclusion is available.");
+        ? "Content Credentials: C2PA/JUMBF structure was detected, but the local validator could not complete this check, so this result is based on the other evidence below."
+        : "Content Credentials: the local validator could not complete this check, so this result is based on the other evidence below.");
     } else if (hasC2PA) {
       parts.push("Content Credentials: C2PA/JUMBF structure was detected, but no readable credential was validated on this device. Treat it only as an unverified marker.");
     } else if (provenance.status === "unsupported") {
-      parts.push("Content Credentials: this file format is not supported by the local validator. No provenance conclusion is available.");
+      parts.push("Content Credentials: this file format is not supported by the local validator, so this result is based on the other evidence below.");
     } else {
       parts.push("Content Credentials: none detected. Credentials are optional and can be removed, so absence says nothing about whether an image is trustworthy.");
     }
@@ -839,8 +928,9 @@
     }
     if (isGif) parts.push("Animated-image limit: a GIF is checked as one decoded frame. Other animation frames are not analyzed; export representative still frames for a broader review.");
 
-    // On-device AI MODEL (ONNX). Its softmax output is a model score, not a
-    // calibrated probability. It never establishes authorship.
+    // On-device AI MODEL (ONNX). The engine v3 decision head gives a calibrated
+    // AI likelihood; the engine v2 per-region scores stay as diagnostics and as
+    // the fallback when the head is unavailable. It never establishes authorship.
     if (window.OnnxDetector) {
       const m = await window.OnnxDetector.detect(file, scanDetectOptions());
       if (m && Number.isFinite(m.aiLikelihood)) {
@@ -848,6 +938,15 @@
         score = Math.floor(rawModelScore + Number.EPSILON);
         const label = m.model || "GAIC Image Model";
         imageRegionScores = normalizeImageRegionScores(m);
+        headReading = m.head && Number.isFinite(m.head.probability) &&
+          m.head.probability >= 0 && m.head.probability <= 1 ? m.head : null;
+        scanKind = m.regionScan === "content-aware-tta-v6" ? "composite-v6" : "direct-v5";
+        if (headReading) {
+          parts.push("GAIC Image Model v3: " + Math.round(headReading.probability * 100) +
+            "% AI likelihood, averaged over " + (Number(headReading.views) || imageRegionScores.length) +
+            " views of this " + (headReading.kind === "composite" ? "screenshot and the picture located inside it" : "image") +
+            ". The decision head was trained on 2025–2026 generators and on real photos, artwork, charts, screenshots, and app interfaces, and calibrated on generator families and image sources it never saw in training.");
+        }
         if (m.regionScan === "content-aware-tta-v6") {
           // Scan v6 composite frame: a picture surrounded by interface
           // background (screenshot, letterboxed frame) was located. The
@@ -858,75 +957,36 @@
           const frame = imageRegionScores.find((region) => region.id !== "picture");
           const pct = (region) => (Math.round(region.aiLikelihood * 1000) / 10).toFixed(1) + "/100";
           const area = Number(m.pictureArea);
-          metricLabel = "Screenshot scan: stronger of two readings — not AI %";
-          parts.push(label + ": " + score + "/100, the higher of two local readings. " +
+          metricLabel = "Screenshot scan: stronger of two readings";
+          parts.push("Engine v2 diagnostics — " + label + ": " + score + "/100, the higher of two local readings. " +
             (picture ? "Detected picture" +
               (Number.isFinite(area) && area > 0 ? " (about " + Math.round(area * 100) + "% of the frame)" : "") +
               ", averaged over " + viewCount + " views at the model's working scale: " + pct(picture) + ". " : "") +
-            (frame ? "Whole-frame scan, strongest of its regions (" + frame.label + "): " + pct(frame) + ". " : "") +
-            "Neither value is a probability.");
+            (frame ? "Whole-frame scan, strongest of its regions (" + frame.label + "): " + pct(frame) + "." : ""));
           parts.push("Layout context: the picture is surrounded by flat interface areas, such as a status bar, page margin, chat window, or player bars, so GAIC also scanned the picture itself. GAIC did not read a page URL, browser history, DOM, nearby text, or another app.");
-          parts.push("Scan limits: locating the picture removes interface pixels the model was never trained on, and averaging several views steadies its reading, but the model can still be fooled in either direction. The picture reading was checked against screenshots of real photographs so that it does not raise their warning rate at the 95/100 or 99/100 bands; that is not an accuracy guarantee.");
-          uncalibratedCompositeFrame = rawModelScore < IMAGE_AI_ELEVATED_BAND;
-          if (uncalibratedCompositeFrame) {
-            score = null;
-            metricLabel = "Portal screenshot: no calibrated score";
-            parts.push("Result policy: low model outputs on screenshot-like or composite frames are not displayed as an AI percentage or authenticity clearance. The values above are raw diagnostics only; this scan is inconclusive.");
-          }
+          parts.push("Scan limits: locating the picture removes interface pixels the model was never trained on, and averaging several views steadies its reading, but screenshots hide detail, so a screenshot reading is less certain than a reading of the original file.");
+          uncalibratedCompositeFrame = !headReading && rawModelScore < IMAGE_AI_ELEVATED_BAND;
         } else if (imageRegionScores.length > 1) {
-          metricLabel = "Strongest-region model signal — not AI %";
+          metricLabel = "Strongest-region model signal";
           const diagnostics = imageRegionScores.map((region) =>
             region.label + " " +
             (Math.round(region.aiLikelihood * 1000) / 10).toFixed(1) +
             "/100"
           );
-          parts.push(label + ": " + score + "/100 strongest-region model signal. The displayed value is the highest of " +
-            imageRegionScores.length + " local views, not an average or a probability. Region diagnostics: " +
+          parts.push("Engine v2 diagnostics — " + label + ": " + score + "/100 strongest-region model signal, the highest of " +
+            imageRegionScores.length + " local views. Region diagnostics: " +
             diagnostics.join(" · ") + ".");
-          parts.push("Multi-region limit: checking several views can recover a picture that the old center-only crop missed, but it can also expose a spurious high outlier. A small declared orientation set supports the separate 95/100 elevated-evidence band and 99/100 high-warning band; it is not population calibration or an accuracy claim. Verify any result independently.");
           const context = frameLayoutContext(file, dims, imageRegionScores.length);
           if (context) parts.push(context);
-          uncalibratedCompositeFrame =
+          uncalibratedCompositeFrame = !headReading &&
             isScreenCaptureLikeFrame(file, dims) &&
             rawModelScore < IMAGE_AI_ELEVATED_BAND;
-          if (uncalibratedCompositeFrame) {
-            // A low multi-crop score has no validated meaning for a composite
-            // portal screenshot. Keep the raw local diagnostics in the evidence
-            // text, but do not promote their maximum into a "0 AI" style result.
-            score = null;
-            metricLabel = "Portal screenshot: no calibrated score";
-            parts.push("Result policy: low model outputs on screenshot-like composite frames are not displayed as an AI percentage or authenticity clearance. The per-region values above are raw diagnostics only; this scan is inconclusive.");
-          }
+          if (uncalibratedCompositeFrame) scanKind = "composite-v6";
         } else {
-          parts.push(label + ": " + score + "/100 model signal. This is not a probability.");
+          parts.push("Engine v2 diagnostics — " + label + ": " + score + "/100 model signal.");
         }
-        parts.push("Model limits: it was trained on images from several thousand community generative models through 2024; the newest generators, heavy edits, screenshots, recompression, unusual content, and portal interface elements can still fool it in either direction.");
+        parts.push("Model limits: heavy edits, screenshots, recompression, unusual content, and generators newer than its training data can still fool it in either direction.");
       }
-    }
-    if (
-      sourceContext &&
-      sourceContext.knownGenerator &&
-      rawModelScore != null &&
-      rawModelScore < IMAGE_AI_BAND
-    ) {
-      // A low detector value must not visually contradict a user-supplied
-      // generator-site origin. Keep the raw detector value in the evidence
-      // text, but let the independent source clue own the headline.
-      score = null;
-      metricLabel = "Generator-site context: no combined AI percentage";
-      parts.push("Result policy: GAIC does not average a generator-site origin clue into an invented AI percentage. The low model value above remains a fallible diagnostic, not an authenticity clearance.");
-    } else if (
-      rawModelScore != null &&
-      rawModelScore < IMAGE_AI_ELEVATED_BAND &&
-      !uncalibratedCompositeFrame
-    ) {
-      // The model has reviewed evidence bands but no validated clearing band.
-      // A large "0/100" headline predictably reads as "0% AI," which the
-      // underlying model cannot support. Preserve its raw output in the
-      // evidence paragraph and withhold a headline number below the band.
-      score = null;
-      metricLabel = "Inconclusive model signal: no authenticity score";
-      parts.push("Result policy: model values below the reviewed elevated-evidence band are not displayed as an AI percentage or authenticity score. The raw value above is diagnostic evidence only and can miss generated media.");
     }
     if (rawModelScore == null) {
       const configured = !!(window.AICHECK_ONNX && window.AICHECK_ONNX.model);
@@ -936,37 +996,50 @@
           ? window.OnnxDetector.lastError.slice(0, 300)
           : "";
       parts.push((configured
-        ? "Model status: the bundled image model could not load on this device, so no model score is shown."
-        : "Model status: this build does not include a trained image model, so no model score is shown.") +
+        ? "Model status: the bundled image model could not load on this device, so the pixel scan did not run."
+        : "Model status: this build does not include a trained image model, so the pixel scan did not run.") +
         (boundedModelError ? " " + boundedModelError : ""));
     }
 
-    // Provenance, not a pixel score, owns the headline. The ordering lives in
-    // provenance-verdict.mjs as one auditable decision table rather than a
-    // chain of conditionals here: a validated Content Credential outranks every
-    // other signal, editable generator metadata outranks a bare model score,
-    // and the model can never produce a clearing verdict. A low model score
-    // never becomes "authentic"; the current model has no validated clearing
-    // band. See test/provenance-verdict.mjs for the enforced invariants.
+    // The evidence read (technical line) comes from provenance-verdict.mjs as
+    // one auditable decision table: a validated Content Credential outranks
+    // every other signal, and editable generator metadata outranks a bare
+    // model score. The headline lean comes from decideImageLean, which weighs
+    // the same evidence as calibrated likelihood ratios. See
+    // test/provenance-verdict.mjs for the enforced invariants.
     scanStage("weigh");
-    let evidence = null;
-    if (window.ProvenanceVerdict &&
-        typeof window.ProvenanceVerdict.assessImageEvidence === "function") {
-      evidence = window.ProvenanceVerdict.assessImageEvidence({
-        provenance,
-        container: { hasC2PA, hasExif, hasXMP, derivedFromHEIF },
-        metadata: { generatorTagged: aiTags, exif: derivedFromHEIF ? {} : (meta.exif || {}) },
-        encoder: encoderEvidence,
-        declarations: containerDeclarations,
-        sourceContext,
-        pixel: {
-          available: rawModelScore != null,
-          rawScore: rawModelScore,
-          elevatedBand: IMAGE_AI_ELEVATED_BAND,
-          warningBand: IMAGE_AI_BAND,
-          compositeFrame: uncalibratedCompositeFrame,
-        },
-      });
+    // With the decision head, the pixel evidence is its calibrated probability
+    // (on the same 0-100 scale the warning bands use); without it, the engine v2
+    // raw score and its measured likelihood-ratio table.
+    const evidenceInput = {
+      provenance,
+      container: { hasC2PA, hasExif, hasXMP, derivedFromHEIF },
+      metadata: { generatorTagged: aiTags, generatorParameters: generatorTextKeys.length > 0,
+        exif: derivedFromHEIF ? {} : (meta.exif || {}) },
+      encoder: encoderEvidence,
+      declarations: containerDeclarations,
+      sourceContext,
+      pixel: {
+        available: rawModelScore != null,
+        rawScore: headReading ? headReading.probability * 100 : rawModelScore,
+        probability: headReading ? headReading.probability : null,
+        cuts: headReading ? headReading.cuts || null : null,
+        scan: scanKind,
+        elevatedBand: IMAGE_AI_ELEVATED_BAND,
+        warningBand: IMAGE_AI_BAND,
+        compositeFrame: uncalibratedCompositeFrame,
+      },
+    };
+    let evidence = null, decision = null;
+    const verdictModule = window.ProvenanceVerdict;
+    if (verdictModule && typeof verdictModule.assessImageEvidence === "function") {
+      evidence = verdictModule.assessImageEvidence(evidenceInput);
+    }
+    if (verdictModule && typeof verdictModule.decideImageLean === "function") {
+      decision = verdictModule.decideImageLean(evidenceInput);
+    } else if (rawModelScore != null) {
+      const p = headReading ? headReading.probability : Math.max(0.01, Math.min(0.99, rawModelScore / 100));
+      decision = { lean: p >= 0.5 ? "ai" : "real", confidence: "low", probabilityAi: p };
     }
 
     if (evidence) {
@@ -977,12 +1050,23 @@
         if (parts.indexOf(limit) === -1) parts.push(limit);
       }
     } else {
-      // Fail closed to the most conservative wording if the module is missing.
-      verdict = "No decisive image signal";
-      parts.push("Evidence ordering unavailable on this device; no origin conclusion is offered.");
+      verdict = rawModelScore != null
+        ? imageSignalVerdict(headReading ? headReading.probability * 100 : rawModelScore)
+        : "No origin record or metadata clue found";
+      parts.push("Evidence ordering unavailable on this device; this result is based on the pixel scan alone.");
     }
 
-    return { kind: "image", score, metricLabel, verdict, explain: parts.join("\n"),
+    if (!decision) {
+      // Nothing to decide from: the model did not run and no origin clue was
+      // found. That is a failed check, not a verdict, and it is not counted.
+      return { kind: "error", score: null, verdict: "Couldn't complete the check",
+        explain: parts.join("\n"),
+        provenanceStatus: provenance.status,
+        guidance: "Try again, or try a JPEG or PNG copy of the image. This failed check did not use a free check.",
+        countsTowardLimit: false };
+    }
+
+    const imageResult = { kind: "image", score, metricLabel, verdict, explain: parts.join("\n"),
       provenanceStatus: provenance.status,
       evidenceTier: evidence ? evidence.tier : null,
       evidenceBand: evidence ? evidence.band : null,
@@ -1001,7 +1085,13 @@
       } : null,
       mediaSummary: describeMedia(file, dims, derivedFromHEIF ? null : (meta.exif || null),
         derivedFromHEIF ? "converted locally from HEIC/HEIF" : null),
-      guidance: "Check the original source, compare important credentials in another reputable validator, and look for corroborating evidence. Never use this score alone for discipline, employment, legal, safety, or moderation decisions." };
+      guidance: "Check the original source, compare important credentials in another reputable validator, and look for corroborating evidence. Never use this result alone for discipline, employment, legal, safety, or moderation decisions." };
+    applyDecision(imageResult, { lean: decision.lean, confidence: decision.confidence,
+      aiLikelihood: decision.probabilityAi * 100 });
+    imageResult.leanAuthority = decision.authority || "";
+    imageResult.leanDrivers = Array.isArray(decision.drivers) ? decision.drivers.slice(0, 8) : [];
+    imageResult.explain = leanSentence(imageResult) + "\n" + imageResult.explain;
+    return imageResult;
   }
 
   /* ================ BEGIN ON-DEVICE-ONLY (video + screen scan) ================
@@ -1110,9 +1200,9 @@
     } else if (provenance.status === "invalid") {
       lines.push("Content Credentials: provenance data was found but failed validation. Do not rely on its claims; the file may be damaged, altered after signing, malformed, or use a credential this validator cannot verify.");
     } else if (provenance.status === "unavailable") {
-      lines.push("Content Credentials: the local validator could not complete this check. No provenance, credential-validity, or signer-trust conclusion is available.");
+      lines.push("Content Credentials: the local validator could not complete this check, so this result is based on the sampled frames.");
     } else if (provenance.status === "unsupported") {
-      lines.push("Content Credentials: this video format is not supported by the local validator. No provenance conclusion is available.");
+      lines.push("Content Credentials: this video format is not supported by the local validator, so this result is based on the sampled frames.");
     } else {
       lines.push("Content Credentials: none detected. Credentials are optional and can be removed, so absence says nothing about whether a video is trustworthy or AI-generated.");
     }
@@ -1127,9 +1217,9 @@
     } else if (provenance.status === "valid") {
       verdict = "Valid Content Credential — signer trust not established";
     } else if (provenance.status === "unavailable") {
-      verdict = "Content Credential check unavailable — no conclusion";
+      verdict = "Content Credential check did not complete";
     } else if (provenance.status === "unsupported") {
-      verdict = "Content Credential check unsupported — no conclusion";
+      verdict = "Content Credential check not supported for this format";
     }
 
     if (!validatedAi && provenance.sourceClass === "capture") {
@@ -1245,12 +1335,18 @@
       }
       if (!loaded || !isFinite(duration) || duration <= 0) {
         if (["trusted", "valid", "invalid"].includes(provenance.status)) {
-          return { kind: "video", score: null, verdict: provenanceEvidence.verdict,
-            explain: provenanceEvidence.lines.concat([
-              "Frame sampling: this device could not decode the video or read its duration, so no visual model score was produced. Nothing was uploaded.",
-              "Video limits: audio and motion over time were not analyzed. Content Credentials describe a signed provenance record, not whether the depicted event is true.",
-            ]).join("\n"), provenanceStatus: provenance.status,
-            guidance: "Check the original source and compare important credentials in another reputable validator. Do not make a consequential decision from this credential alone." };
+          const credentialLean = credentialOnlyDecision(provenance);
+          if (credentialLean) {
+            const credentialResult = { kind: "video", score: null, verdict: provenanceEvidence.verdict,
+              explain: provenanceEvidence.lines.concat([
+                "Frame sampling: this device could not decode the video or read its duration, so this result rests on the Content Credential alone. Nothing was uploaded.",
+                "Video limits: audio and motion over time were not analyzed. Content Credentials describe a signed provenance record, not whether the depicted event is true.",
+              ]).join("\n"), provenanceStatus: provenance.status,
+              guidance: "Check the original source and compare important credentials in another reputable validator. Do not make a consequential decision from this credential alone." };
+            applyDecision(credentialResult, credentialLean);
+            credentialResult.explain = leanSentence(credentialResult) + "\n" + credentialResult.explain;
+            return credentialResult;
+          }
         }
         return { kind: "error", score: null, verdict: "Couldn't read this video",
           explain: provenanceEvidence.lines.concat(["This device couldn't decode the video or read its duration. Try a standard MP4 (H.264) or WebM file. Nothing was uploaded."]).join("\n"),
@@ -1262,12 +1358,13 @@
       announce("Checking video — analyzing " + total + " frames on this device.", true);
       const cv = document.createElement("canvas");
       const frameScores = [];
+      const frameReads = [];
       const frameNotes = [];
       const step = windowSeconds / total;
       for (let i = 0; i < total; i++) {
         showProgress("Analyzing frame " + (i + 1) + " of " + total + "…", i / total);
         scanStage("frame", { index: i, total });
-        let pct = null;
+        let pct = null, read = null;
         let note = "seek not confirmed";
         // Try the evenly spaced moment first, then two nearby moments within
         // the same sampling slot if that frame is blank or unreadable.
@@ -1285,26 +1382,32 @@
               const m = await window.OnnxDetector.detect(frame, scanDetectOptions());
               if (m && Number.isFinite(m.aiLikelihood)) {
                 pct = Math.max(0, Math.min(100, m.aiLikelihood * 100));
-                note = Math.floor(pct + Number.EPSILON) + "/100 model signal";
+                read = frameRead(m, pct);
+                note = frameNote(read);
               }
             } catch (_) {}
           }
           break;
         }
         frameScores.push(pct);
+        frameReads.push(read);
         frameNotes.push(note);
         showProgress("Analyzed frame " + (i + 1) + " of " + total, (i + 1) / total);
       }
       scanStage("weigh");
       const valid = frameScores.filter((s) => Number.isFinite(s));
       if (!valid.length) {
-        if (["trusted", "valid", "invalid"].includes(provenance.status)) {
-          return { kind: "video", score: null, verdict: provenanceEvidence.verdict,
+        const credentialLean = credentialOnlyDecision(provenance);
+        if (credentialLean) {
+          const credentialResult = { kind: "video", score: null, verdict: provenanceEvidence.verdict,
             explain: provenanceEvidence.lines.concat([
-              "Frame sampling: none of the " + total + " requested seeks produced a confirmed, model-scored still frame. No visual score was invented, and nothing was uploaded.",
-              "Video limits: audio and motion over time were not analyzed. The credential result is provenance evidence only, not proof that the video is true.",
+              "Frame sampling: none of the " + total + " requested seeks produced a confirmed, model-scored still frame, so this result rests on the Content Credential alone. Nothing was uploaded.",
+              "Video limits: audio and motion over time were not analyzed. The credential result is provenance evidence, not proof that the video is true.",
             ]).join("\n"), provenanceStatus: provenance.status,
             guidance: "Try a shorter standard MP4 or inspect representative still frames, and compare important credentials in another reputable validator." };
+          applyDecision(credentialResult, credentialLean);
+          credentialResult.explain = leanSentence(credentialResult) + "\n" + credentialResult.explain;
+          return credentialResult;
         }
         return { kind: "error", score: null, verdict: "Video frames couldn't be scored",
           explain: provenanceEvidence.lines.concat(["None of the requested seeks produced a confirmed, model-scored still frame. No score was invented, and nothing left your device."]).join("\n"),
@@ -1313,10 +1416,11 @@
           countsTowardLimit: false };
       }
       // Honest aggregation: median (typical frame) + max (worst frame). One
-      // spiky frame is reported but doesn't masquerade as the whole video.
-      // The same raw 95/99 bands used for still images and Chrome decide
-      // whether a numeric result is eligible for the main result card.
+      // spiky frame is reported but doesn't masquerade as the whole video, and
+      // the lean follows the typical frame (frameDecision).
       const frameSignal = frameSignalSummary(valid);
+      const decision = frameDecision(frameReads.filter(Boolean),
+        { status: provenance.status, sourceClass: provenance.sourceClass });
       const median = frameSignal.median;
       const maxScore = frameSignal.maxScore;
       const modelVerdict = frameSignal.verdict;
@@ -1329,15 +1433,18 @@
           (duration > VIDEO_SCAN_WINDOW_SECONDS ? " (long video: only the first " + fmtClock(VIDEO_SCAN_WINDOW_SECONDS) + " is sampled)" : "") +
           ", all on your device. A video check counts as one check against the free weekly allowance.",
         perFrame,
-        "GAIC Image Model v2: median " + median + "/100, highest sampled frame " + maxScore + "/100.",
-        "Video limits: this still-image model has not been validated as a full-video detector. Only " + total + " still frames were sampled; motion over time was not analyzed; audio was not analyzed; compression and re-encoding can hide or mimic artifacts. Scores are not probabilities, and nothing left your device.",
+        "Engine v2 diagnostics: median " + median + "/100, highest sampled frame " + maxScore + "/100.",
+        "Video limits: this still-image model reads sampled frames; it has not been validated as a full-video detector. Only " + total + " still frames were sampled; motion over time and audio were not analyzed; compression and re-encoding can hide or mimic artifacts, so video confidence is lower than for still images. Nothing left your device.",
       ]);
-      return { kind: "video", score: frameSignal.score, metricLabel: "Median frame-model score", verdict, explain: parts.join("\n"),
+      const videoResult = { kind: "video", score: frameSignal.score, metricLabel: "Median frame-model score", verdict, explain: parts.join("\n"),
         provenanceStatus: provenance.status,
         mediaSummary: describeMedia(file,
           video.videoWidth && video.videoHeight ? { width: video.videoWidth, height: video.videoHeight, format: "video" } : null,
           null, "runs " + fmtClock(duration)),
         guidance: "Inspect the original video, source account, edit history, and multiple representative frames. Never make a consequential decision from this sample alone." };
+      applyDecision(videoResult, decision);
+      videoResult.explain = leanSentence(videoResult) + "\n" + videoResult.explain;
+      return videoResult;
     } finally {
       hideProgress();
       try { video.removeAttribute("src"); video.load(); } catch (e) {}
@@ -1486,15 +1593,37 @@
       maxRaw,
       median: Math.floor(medianRaw + Number.EPSILON),
       maxScore: Math.floor(maxRaw + Number.EPSILON),
-      score: highSignal || elevatedSignal
-        ? Math.floor(medianRaw + Number.EPSILON)
-        : null,
+      score: Math.floor(medianRaw + Number.EPSILON),
       verdict: highSignal
         ? "High model signal in sampled frames — verify"
         : elevatedSignal
           ? "Elevated model signal in sampled frames — verify"
-          : "Sampled frames are inconclusive",
+          : "Sampled frames below warning bands",
     };
+  }
+
+  // One frame's model read, for frameDecision: the engine v2 score plus the
+  // decision head's calibrated probability when the head ran.
+  function frameRead(m, pct) {
+    const head = m && m.head && Number.isFinite(m.head.probability) ? m.head : null;
+    return { pct, probability: head ? head.probability : null, cuts: head ? head.cuts || null : null };
+  }
+
+  function frameNote(read) {
+    return Number.isFinite(read.probability)
+      ? Math.round(read.probability * 100) + "% AI likelihood"
+      : Math.floor(read.pct + Number.EPSILON) + "/100 model signal";
+  }
+
+  // A validated or trusted credential can decide a video on its own when no
+  // frame could be read; anything weaker is a failed check.
+  function credentialOnlyDecision(provenance) {
+    const verdictModule = window.ProvenanceVerdict;
+    if (!verdictModule || typeof verdictModule.decideImageLean !== "function") return null;
+    const lean = verdictModule.decideImageLean({
+      provenance: { status: provenance.status, sourceClass: provenance.sourceClass },
+    });
+    return lean ? { lean: lean.lean, confidence: lean.confidence, aiLikelihood: lean.probabilityAi * 100 } : null;
   }
 
   // Score every captured frame and aggregate into ONE verdict, mirroring the
@@ -1504,30 +1633,33 @@
   async function analyzeScreenFrames(frames) {
     const total = frames.length;
     const scores = [];
+    const reads = [];
     const notes = [];
     let previous = null;
     for (let i = 0; i < total; i++) {
       showProgress("Analyzing frame " + (i + 1) + " of " + total + "…", i / total);
       scanStage("frame", { index: i, total });
       scanFrame(frames[i], i, total);
-      let pct = null, note = "no model read";
+      let pct = null, read = null, note = "no model read";
       const fingerprint = frames[i] && frames[i].aicheckFingerprint;
       if (previous && Number.isFinite(previous.pct) && sameFrame(previous.fingerprint, fingerprint)) {
         pct = previous.pct;
+        read = previous.read;
         scanStage("frame", { index: i, total, from: previous.index });
-        note = Math.floor(pct + Number.EPSILON) + "/100 model signal (unchanged from frame " + previous.index + ")";
+        note = frameNote(read) + " (unchanged from frame " + previous.index + ")";
       } else if (window.OnnxDetector) {
         try {
           const m = await window.OnnxDetector.detect(frames[i], scanDetectOptions());
           if (m && Number.isFinite(m.aiLikelihood)) {
             pct = Math.max(0, Math.min(100, m.aiLikelihood * 100));
-            note = Math.floor(pct + Number.EPSILON) + "/100 model signal" +
+            read = frameRead(m, pct);
+            note = frameNote(read) +
               (m.regionScan === "content-aware-tta-v6" ? " (picture located on screen)" : "");
-            previous = { pct, fingerprint, index: i + 1 };
+            previous = { pct, read, fingerprint, index: i + 1 };
           }
         } catch (_) {}
       }
-      scores.push(pct); notes.push(note);
+      scores.push(pct); reads.push(read); notes.push(note);
       showProgress("Analyzed frame " + (i + 1) + " of " + total, (i + 1) / total);
     }
     scanStage("weigh");
@@ -1542,7 +1674,7 @@
     const median = frameSignal.median;
     const maxScore = frameSignal.maxScore;
     const perFrame = notes.map((n, i) => "Frame " + (i + 1) + " of " + total + " — " + n).join("\n");
-    return {
+    const screenResult = {
       kind: "video",
       score: frameSignal.score,
       metricLabel: "Median frame-model score",
@@ -1551,12 +1683,15 @@
         "Screen capture: " + valid.length + " of " + total + " frames sampled across about " +
           SCREEN_CAPTURE_SECONDS + " seconds of the surface you chose, all on your device. Sharing stopped as soon as the capture finished, nothing was recorded to a file, and a screen check counts as one check against the free weekly allowance.",
         perFrame,
-        "GAIC Image Model v2: median " + median + "/100, highest sampled frame " + maxScore + "/100.",
-        "Screen limits: this still-image model has not been validated as a screen-content or full-video detector. Only " + total +
-          " still frames were sampled; motion over time and audio were not analyzed; scaling, compression, and display rendering can hide or mimic artifacts. Scores are not probabilities, and nothing left your device.",
+        "Engine v2 diagnostics: median " + median + "/100, highest sampled frame " + maxScore + "/100.",
+        "Screen limits: this still-image model reads sampled frames; it has not been validated as a screen-content or full-video detector. Only " + total +
+          " still frames were sampled; motion over time and audio were not analyzed; scaling, compression, and display rendering can hide or mimic artifacts. Nothing left your device.",
       ].join("\n"),
       guidance: "Find the original file or post rather than judging a re-displayed copy on screen. Never make a consequential decision from this sample alone.",
     };
+    applyDecision(screenResult, frameDecision(reads.filter(Boolean), null));
+    screenResult.explain = leanSentence(screenResult) + "\n" + screenResult.explain;
+    return screenResult;
   }
 
   // Screen capture runs its own check: the frames already exist, so it does not
@@ -2821,25 +2956,25 @@
   }
 
   // ---------- friendly result voice ----------
-  // A display-only layer: the analysis functions keep returning conservative,
-  // evidence-first verdicts (several are pinned by test/honesty.mjs), and this
-  // map rephrases them in a warmer voice for the headline. The technical
-  // verdict stays visible right below, and nothing here adds a certainty claim
-  // the underlying result does not make.
+  // A display-only layer. Completed checks headline their decisive lean (see
+  // leanHeadline); this map rephrases the evidence read shown as the technical
+  // line, status notes, and errors in a warmer voice. Nothing here adds a
+  // certainty claim the underlying result does not make.
   const FRIENDLY_VERDICTS = {
     // image
-    "Model result is inconclusive": "No clear AI warning — this does not confirm the file is real",
+    "Model signal below warning bands": "The pixel scan stayed below GAIC's AI warning bands",
     "Elevated AI-model signal — verify": "AI warning signs detected — check the original source",
     "High AI-model signal — verify": "Strong AI warning detected — check the original source",
-    "No decisive image signal": "No clear AI warning either way — keep checking the source",
-    "Portal screenshot scan is inconclusive": "The screenshot scan could not decide — check the source and the image inside it",
+    "No origin record or metadata clue found": "No creation record or metadata clue was found",
+    "Screenshot scan below warning bands": "The screenshot scan stayed below GAIC's AI warning bands",
     "Generator-site source supplied — verify output": "The source is an AI-generation site — verify the exact output",
     "Validated AI-origin claim — verify context": "A signed creation record says this was AI-made — check the context",
     "AI tool named in metadata — verify": "The file history names an AI tool — verify how it was used",
     "Content Credential failed validation": "The signed creation record did not pass validation",
     "Trusted Content Credential found — not truth proof": "A trusted signed creation record was found — it confirms history, not truth",
     "Valid Content Credential — signer trust not established": "The creation record is valid, but the signer could not be trusted",
-    "Content Credential check unavailable — no conclusion": "The signed creation record could not be checked this time",
+    "Content Credential check did not complete": "The signed creation record could not be checked this time",
+    "Content Credential check not supported for this format": "This format can't carry a creation record GAIC can check",
     "Provenance data found — not validated": "Creation-history data was found, but it could not be validated",
     "Camera metadata found — not proof": "Camera details were found in the file — useful context, not proof",
     // Provenance-first tiers. Each names the evidence found and stops there:
@@ -2851,7 +2986,7 @@
     "Edit history records a generative step": "The file's edit history mentions an AI editing step — check what it changed",
     "File structure matches a generator write path": "How this file was saved matches a known AI-tool save path — this is about the file, not the picture",
     "Container was rewritten — origin unrecoverable": "This file was re-saved along the way, so its original creation details are gone",
-    "Original container not evaluated — no conclusion": "GAIC checked a converted copy, so nothing can be said about the original file",
+    "Converted copy checked — original container not evaluated": "GAIC checked a converted copy, so the original file's records weren't read",
     "Cloud model signal returned — verify": "The optional cloud scan returned a warning signal — check the original source",
     // text
     "Few formulaic patterns matched": "Few common AI-style writing patterns were found",
@@ -2859,12 +2994,16 @@
     "Several formulaic patterns matched": "Several common AI-style writing patterns were found — review the text closely",
     // video
     "High model signal in sampled frames — verify": "Strong AI warning signs were found in sampled frames — check the source",
-    "Sampled frames are inconclusive": "The sampled frames did not produce a clear AI warning",
+    "Elevated model signal in sampled frames — verify": "AI warning signs were found in sampled frames — check the source",
+    "Sampled frames below warning bands": "The sampled frames stayed below GAIC's AI warning bands",
     // gentle status notes
     "Weekly limit reached": "Your 3 free checks have been used for this week",
     "Free-check status unavailable": "Your free-check status could not be confirmed — try again",
     "No image or video selected": "Choose an image or video to scan",
     "Couldn't complete the check": "The scan could not be completed — try again",
+    "Sample too short for a score": "Add more text — GAIC needs at least 1,000 characters",
+    "Need several complete sentences": "Add a few complete sentences so GAIC can read the writing",
+    "English prose required": "GAIC's text check reads English prose only",
   };
   function friendlyVerdict(verdict) {
     return FRIENDLY_VERDICTS[verdict] || null;
@@ -2894,12 +3033,16 @@
   }
 
   function resultMetric(out) {
-    return out.score == null ? "No numeric score" :
+    if (out.lean && out.score != null) {
+      return "AI likelihood: " + out.score + "% · " + out.confidence + " confidence";
+    }
+    return out.score == null ? "Not scored" :
       (out.metricLabel || "Model signal") + ": " + out.score + "/100";
   }
 
   function primaryResultMetric(out) {
-    if (out.score == null) return "No rating";
+    if (out.lean && out.score != null) return "AI likelihood: " + out.score + "%";
+    if (out.score == null) return "Not scored";
     if (out.kind === "text") return "Pattern signal: " + out.score + "/100";
     if (out.kind === "image" || out.kind === "video") {
       return "Warning signal: " + out.score + "/100";
@@ -2908,7 +3051,14 @@
   }
 
   function plainResultCopy(out) {
-    const verdict = String(out.verdict || "");
+    const lead = out.lean ? leanSentence(out) : "";
+    const detail = evidenceCopy(out);
+    return lead ? (detail ? lead + " " + detail : lead) : detail;
+  }
+
+  // What the evidence behind a result shows, keyed on the evidence read.
+  function evidenceCopy(out) {
+    const verdict = String(out.technicalVerdict || out.verdict || "");
     const score = Number(out.score);
     const strongPixels = Number.isFinite(score) && score >= IMAGE_AI_BAND;
     const elevatedPixels = Number.isFinite(score) && score >= IMAGE_AI_ELEVATED_BAND;
@@ -2935,19 +3085,21 @@
     if (verdict === "Content Credential failed validation") {
       return "The signed creation record did not pass validation. Do not rely on its claims.";
     }
-    if (verdict === "Content Credential check unavailable — no conclusion") {
-      return "GAIC could not finish checking the signed creation record, so no origin conclusion is available.";
+    if (verdict === "Content Credential check did not complete") {
+      return "GAIC could not finish checking the signed creation record, so this result rests on the other evidence.";
+    }
+    if (verdict === "Content Credential check not supported for this format") {
+      return "This format can't carry a creation record GAIC can check, so this result rests on the sampled frames.";
     }
     if (verdict === "Provenance data found — not validated") {
       return "The file contains creation-history data, but GAIC could not validate it.";
     }
     if (verdict === "Camera metadata found — not proof") {
-      return "The file contains camera details. That can support an investigation, but it does not prove the image is real.";
+      return "The file contains camera details. They count a little toward a real photo, but they can be edited.";
     }
     if (verdict === "Corroborating camera metadata — not proof") {
       return "Several camera details are present and agree with each other, which a stripped or edited file " +
-        "usually does not manage. Every one of those fields can still be written by hand, so this supports " +
-        "an investigation and does not prove the image is real.";
+        "usually does not manage. That counts toward a real photo, though every field can still be written by hand.";
     }
     if (verdict === "Camera metadata and write structure agree — not proof") {
       return "The camera details agree with each other, and the way the file was saved also matches a camera. " +
@@ -2966,10 +3118,9 @@
       return "The way this file was written matches a save path GAIC associates with AI tools. This describes " +
         "the file, not the picture, and re-saving any image through the same tool would look identical.";
     }
-    if (verdict === "Original container not evaluated — no conclusion") {
-      return "This device converted the image to a format GAIC can read, so what was checked is a " +
-        "copy rather than your original file. The original's Content Credentials and camera details " +
-        "were never examined, and their absence here says nothing about them.";
+    if (verdict === "Converted copy checked — original container not evaluated") {
+      return "This device converted the image to a format GAIC can read, so the picture itself was checked, " +
+        "but the original file's Content Credentials and camera details were not read.";
     }
     if (verdict === "Container was rewritten — origin unrecoverable") {
       return "This file was re-saved somewhere along the way — usually by a phone gallery, a messaging app, or " +
@@ -2988,21 +3139,27 @@
     if (verdict === "High model signal in sampled frames — verify") {
       return "GAIC found strong AI warning signs in the sampled video or screen frames. It did not analyze every frame, audio, or full motion.";
     }
-    if (verdict === "Sampled frames are inconclusive") {
-      return "The sampled frames did not produce a clear AI warning. That does not prove the full video or screen content is real.";
+    if (verdict === "Elevated model signal in sampled frames — verify") {
+      return "GAIC found AI warning signs in the sampled video or screen frames. It did not analyze every frame, audio, or full motion.";
+    }
+    if (verdict === "Sampled frames below warning bands") {
+      return "The typical sampled frame stayed below GAIC's AI warning bands. Only sampled still frames were read, not audio or motion.";
+    }
+    if (verdict === "Model signal below warning bands" || verdict === "Screenshot scan below warning bands") {
+      return "The pixel scan stayed below GAIC's AI warning bands.";
     }
     if (out.kind === "text") {
-      return "GAIC checked for writing patterns that often appear in generated text. The same patterns can also appear in human writing.";
+      return "GAIC compared the writing with patterns common in AI-generated and human-written text. Human writing can share some of those patterns.";
     }
     if (out.kind === "error") {
       return out.explain || "GAIC could not complete this scan.";
     }
-    return "GAIC could not make a clear call. That does not confirm the content is real or human-made.";
+    return "";
   }
 
   function resultSummary(out) {
     const parts = [
-      "GAIC result: " + (friendlyVerdict(out.verdict) || out.verdict),
+      "GAIC result: " + ((out.lean ? null : friendlyVerdict(out.verdict)) || out.verdict),
       primaryResultMetric(out),
       plainResultCopy(out)
     ];
@@ -3039,12 +3196,13 @@
     const kindLabels = { text: "Text scan", image: "Photo scan",
       video: "Video-frame scan", error: "Scan status" };
     if (kindEl) kindEl.textContent = kindLabels[out.kind] || "GAIC result";
-    const friendly = friendlyVerdict(out.verdict);
+    const friendly = out.lean ? null : friendlyVerdict(out.verdict);
     if (verdictEl) verdictEl.textContent = friendly || out.verdict;
     const techEl = $("verdict-tech");
+    const technical = out.lean ? out.technicalVerdict : (friendly ? out.verdict : "");
     if (techEl) {
-      techEl.hidden = !friendly;
-      techEl.textContent = friendly ? "Technical read: " + out.verdict : "";
+      techEl.hidden = !technical;
+      techEl.textContent = technical ? "Technical read: " + technical : "";
     }
     const descEl = $("content-desc");
     if (descEl) {
@@ -3052,11 +3210,12 @@
       descEl.textContent = out.mediaSummary || "";
     }
     if (summaryEl) summaryEl.textContent = plainResultCopy(out);
-    if (metricDetailEl) metricDetailEl.textContent =
-      "Technical metric: " + resultMetric(out) + ". This is not a probability.";
+    if (metricDetailEl) metricDetailEl.textContent = out.lean
+      ? "Technical metric: " + resultMetric(out) + ". An estimate from the evidence, not proof."
+      : out.score == null ? "" : "Technical metric: " + resultMetric(out) + ".";
     updateUpsell();
     if (out.score == null) {
-      if (scoreEl) scoreEl.textContent = "No rating";
+      if (scoreEl) scoreEl.textContent = "Not scored";
       if (barEl) barEl.style.width = "0%";
       if (meterEl) meterEl.hidden = true;
     } else {
@@ -3065,7 +3224,7 @@
       if (barEl) barEl.style.width = pct + "%";
       if (meterEl) {
         meterEl.hidden = false;
-        meterEl.setAttribute("aria-label", resultMetric(out) + ". This is not a probability.");
+        meterEl.setAttribute("aria-label", resultMetric(out) + ".");
       }
     }
     if (explainEl) explainEl.textContent = out.explain;
@@ -3097,12 +3256,12 @@
     } catch (e) {}
   }
   function announceResult(out) {
-    const heading = friendlyVerdict(out.verdict) || out.verdict;
+    const heading = (out.lean ? null : friendlyVerdict(out.verdict)) || out.verdict;
     const spoken = out.score == null
       ? heading
       : heading + ". " + resultMetric(out) + ".";
     announce(spoken, true);
-    if (window.Native) window.Native.haptic(out.kind !== "text" && out.score != null && out.score >= IMAGE_AI_BAND ? "heavy" : "medium");
+    if (window.Native) window.Native.haptic(out.lean === "ai" && out.confidence === "high" ? "heavy" : "medium");
   }
 
   function readResult() {

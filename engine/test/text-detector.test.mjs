@@ -17,6 +17,24 @@ test("model is embedded and matches the engine", () => {
   assert.ok(E.model.bands.high > E.model.bands.low);
 });
 
+test("every scored document gets a lean, a confidence level, and a consistent AI likelihood", () => {
+  const d = E.model.decision;
+  assert.ok(d && Number.isFinite(d.threshold));
+  let previous = 0;
+  for (let logit = -8; logit <= 8; logit += 0.05) {
+    const r = E.decide(logit);
+    assert.ok(["ai", "human"].includes(r.lean));
+    assert.ok(["high", "medium", "low"].includes(r.confidence));
+    assert.equal(r.lean === "ai", logit >= d.threshold);
+    assert.equal(r.aiLikelihood >= 50, r.lean === "ai");
+    assert.ok(r.aiLikelihood >= previous, "AI likelihood is monotone in the logit");
+    previous = r.aiLikelihood;
+  }
+  assert.equal(E.decide(d.aiHigh + 0.01).confidence, "high");
+  assert.equal(E.decide(d.threshold).confidence, "low");
+  assert.equal(E.analyze(MACHINE).decision.lean, "ai");
+});
+
 test("display mapping keeps the 15-85 range and the 34/66 band edges", () => {
   assert.equal(E.displayScore(E.model.bands.low), 34);
   assert.equal(E.displayScore(E.model.bands.high), 66);
@@ -58,6 +76,7 @@ test("long documents are scored in bounded passages", () => {
 test("app.js keeps the gates and verdict contract and falls back without the engine", () => {
   const code = "(function (global) {" +
     appSection("  const MIN_TEXT_CHARACTERS = 1000;", "  function analyticsTrack") +
+    appSection("  // ---------- decisive result layer ----------", "  function setCheckButtonLabel") +
     appSection("  const FORMULAIC_PHRASES", "  // ---------- friendly one-liner") +
     "\nglobalThis.analyzeText = analyzeText;\n})(globalThis);";
 
@@ -65,10 +84,19 @@ test("app.js keeps the gates and verdict contract and falls back without the eng
   vm.runInContext(code, withEngine);
   const machine = withEngine.analyzeText(MACHINE);
   assert.equal(machine.kind, "text");
-  assert.equal(machine.metricLabel, "Text-pattern signal");
-  assert.equal(machine.verdict, "Several formulaic patterns matched");
-  assert.match(machine.explain, /not a probability/);
-  assert.equal(withEngine.analyzeText("short").score, null);
+  assert.equal(machine.lean, "ai");
+  assert.match(machine.verdict, /^Likely AI-written — (high|medium) confidence$/);
+  assert.equal(machine.technicalVerdict, "Several formulaic patterns matched");
+  assert.equal(machine.metricLabel, "AI likelihood");
+  assert.ok(machine.score >= 50 && machine.score <= 99);
+  assert.match(machine.explain, /^GAIC's read: this text is likely AI-written/);
+  const human = withEngine.analyzeText(HUMAN + " " + HUMAN);
+  assert.equal(human.lean, "human");
+  assert.ok(human.score < 50);
+  const short = withEngine.analyzeText("short");
+  assert.equal(short.kind, "error");
+  assert.equal(short.score, null);
+  assert.equal(short.lean, undefined);
 
   const withoutEngine = { TextEncoder };
   withoutEngine.globalThis = withoutEngine;
@@ -77,6 +105,8 @@ test("app.js keeps the gates and verdict contract and falls back without the eng
   const legacy = withoutEngine.analyzeText(MACHINE);
   assert.equal(legacy.kind, "text");
   assert.ok(legacy.score >= 15 && legacy.score <= 85);
+  assert.equal(legacy.confidence, "low");
+  assert.match(legacy.verdict, /^Leans (AI|human)-written — low confidence$/);
 
   const html = read("ai-detector.html");
   assert.ok(html.indexOf('<script src="text-detector.js"></script>') > -1);

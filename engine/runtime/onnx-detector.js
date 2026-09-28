@@ -979,6 +979,7 @@
         activeWorker.postMessage({
           id,
           kind: "detect-rgba",
+          composite: !(file && file.aicheckScanHint === "video-frame"),
           regions: prepared.regions,
           sourceWidth: prepared.sourceWidth,
           sourceHeight: prepared.sourceHeight,

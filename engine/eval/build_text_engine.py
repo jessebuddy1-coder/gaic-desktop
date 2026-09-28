@@ -12,6 +12,9 @@ model = {
     # training data; explanations cite a measurement only when its contribution
     # agrees with this direction.
     "effect": json.load(open("../data/text/dense_effect.json")),
+    # Lean threshold, displayed-likelihood knots, and confidence cut points,
+    # all measured on leave-one-corpus-out scores (textcal.py).
+    "decision": json.load(open("../data/text/decision.json")),
 }
 block = ("\n/* GAIC Text Model v2 weights: logistic regression over the measurements above\n"
          "   plus a 2,500-term general-vocabulary lexicon. Provenance, training corpora,\n"

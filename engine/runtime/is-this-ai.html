@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#fdfaf7"/>
+<meta name="color-scheme" content="light"/>
+<title>Is This AI? Free AI Image Checker | GAIC</title>
+<meta name="description" content="Use the official GAIC quick check to scan a suspicious photo for signs of AI before you trust or share it. No account or upload."/>
+<link rel="canonical" href="https://gaicheck.com/is-this-ai"/>
+<meta property="og:title" content="Could This Photo Be AI? Official GAIC Quick Check"/>
+<meta property="og:description" content="Run the official GAIC photo scan privately on your device, with no account or upload."/>
+<meta property="og:type" content="website"/>
+<meta property="og:url" content="https://gaicheck.com/is-this-ai"/>
+<meta property="og:image" content="https://gaicheck.com/og-gaic.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta property="og:image:alt" content="GAIC: Is this AI? Private AI image checker"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="Could This Photo Be AI? Free GAIC Check"/>
+<meta name="twitter:description" content="Scan a suspicious photo for AI warning signs privately on your device."/>
+<meta name="twitter:image" content="https://gaicheck.com/og-gaic.png"/>
+<link rel="icon" href="app-mark.svg" type="image/svg+xml"/>
+<link rel="stylesheet" href="is-this-ai.css"/>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "GAIC — Is This AI?",
+      "url": "https://gaicheck.com/is-this-ai",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Any modern web browser",
+      "description": "A free, private photo checker that scans for AI warning signs on the user's device.",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "featureList": ["On-device image analysis", "No image upload", "One free quick check each day"]
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Can an AI detector prove that an image is AI-generated?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. An AI scan can show warning signs, not proof. GAIC recommends checking the original source, edit history, and signed Content Credentials too." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does GAIC upload my image?",
+          "acceptedAnswer": { "@type": "Answer", "text": "This free checker runs the image model in your browser. The selected image is not uploaded." }
+        },
+        {
+          "@type": "Question",
+          "name": "How many free checks do I get?",
+          "acceptedAnswer": { "@type": "Answer", "text": "This quick web checker includes one successful check each local day. The full GAIC free tier includes 3 checks per week." }
+        }
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#checker">Skip to checker</a>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="GAIC home">
+    <img class="brand-wordmark" src="gaic-wordmark.png" alt="GAIC"/>
+  </a>
+  <nav aria-label="Primary">
+    <a href="/ai-detector">Full checker</a>
+    <a href="/blog">Learn</a>
+    <a class="nav-cta" href="/ai-detector#pricing">3 free checks/week</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero" id="checker">
+    <div class="hero-copy">
+      <p class="eyebrow">Official GAIC quick check</p>
+      <h1>Could this photo be AI?</h1>
+      <p class="lede">Use the official GAIC photo scan before you trust or share it. Built to be the world’s best first check. No account. No upload.</p>
+      <div class="entry-choices" role="group" aria-label="Choose how to start">
+        <button type="button" class="entry entry-quick" id="entry-quick">
+          <span class="entry-kicker">Quick scan</span>
+          <span class="entry-label">Upload a photo now</span>
+          <span class="entry-sub">Scans as soon as you pick it. One quick check per day, on your device.</span>
+        </button>
+        <a class="entry entry-full" href="/ai-detector">
+          <span class="entry-kicker">Everything</span>
+          <span class="entry-label">Check AI for free</span>
+          <span class="entry-sub">The full checker: photos, video frames, screens and long text.</span>
+        </a>
+      </div>
+      <ul class="trust-list" aria-label="Privacy promises">
+        <li>Runs on your device</li>
+        <li>No image upload</li>
+        <li>No account needed</li>
+      </ul>
+    </div>
+
+    <div class="hero-side">
+    <section class="checker-card" aria-labelledby="checker-title">
+      <div class="checker-heading">
+        <div>
+          <p class="card-kicker">Quick check</p>
+          <h2 id="checker-title">Scan one photo</h2>
+        </div>
+        <span class="usage" id="usage" role="status">Checking availability…</span>
+      </div>
+      <input id="image-input" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" hidden/>
+      <button type="button" class="drop-zone" id="choose-button">
+        <span class="drop-icon" aria-hidden="true">+</span>
+        <span><b>Choose a photo</b><small>JPEG or PNG · up to 5 MB</small></span>
+      </button>
+      <div class="preview-wrap" id="preview-wrap" hidden>
+        <img id="preview" alt="Selected image preview"/>
+        <button type="button" class="change-button" id="change-button">Choose another</button>
+      </div>
+      <label class="quick-source" for="source-url">
+        <span>Where did you find it? <small>(optional)</small></span>
+        <input type="url" id="source-url" inputmode="url" maxlength="2048" placeholder="https://chatgpt.com/…"/>
+        <small>GAIC reads only the site name you enter. It never opens, saves, or uploads this link.</small>
+      </label>
+      <button type="button" class="check-button" id="check-button" disabled>Scan this photo</button>
+      <div class="progress" id="progress" hidden role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Checking for signs of AI on your device…</span>
+      </div>
+      <section class="result" id="result" hidden tabindex="-1" aria-live="polite">
+        <p class="result-label">GAIC scan result</p>
+        <div class="score-row"><strong id="score">—</strong><span id="score-unit">/100</span></div>
+        <h3 id="verdict">Result</h3>
+        <p id="explanation"></p>
+        <details class="scan-details">
+          <summary>See scan details</summary>
+          <p id="technical-explanation"></p>
+        </details>
+        <div class="result-actions">
+          <button type="button" class="share-button" id="share-button">Share this checker</button>
+          <a href="/ai-detector">Open the full checker</a>
+        </div>
+      </section>
+      <p class="error" id="error" role="alert"></p>
+      <p class="fine-print">One successful quick check per local day on this browser. The full free tier includes <b>3 checks per week</b> across text, photos, videos, and screen captures.</p>
+    </section>
+    <aside class="hero-more" aria-labelledby="hero-more-title">
+      <p class="card-kicker">What GAIC actually checks</p>
+      <h2 id="hero-more-title">Four signals, ordered by how much they prove</h2>
+      <ol class="signal-list">
+        <li>
+          <b>Signed creation records (C2PA)</b>
+          <span>A cryptographic manifest is the only signal that can name a generator
+          outright. When one is present and validates, it leads the result.</span>
+        </li>
+        <li>
+          <b>Camera metadata, cross-checked</b>
+          <span>Make, lens, exposure and timestamps are graded on whether they agree
+          with each other. Every field can be edited, so this supports an
+          investigation rather than settling it.</span>
+        </li>
+        <li>
+          <b>How the file was written</b>
+          <span>Encoder and container structure can show a file was re-saved and its
+          origin lost. A rewritten container is not itself an AI signal.</span>
+        </li>
+        <li>
+          <b>The pixel model, as supporting evidence</b>
+          <span>Shown as a separate band, never as the headline and never as a
+          probability. New tools and edited files can fool any detector.</span>
+        </li>
+      </ol>
+      <p class="hero-more-foot">A scan is a lead, not proof. Nothing you choose is
+      uploaded for this quick check.</p>
+    </aside>
+    </div>
+  </section>
+
+  <section class="explain">
+    <div>
+      <p class="eyebrow">A smarter first check</p>
+      <h2>Scan before you trust or share</h2>
+      <p>GAIC looks for visual patterns that can appear in AI-generated images. Strong warning signs are a reason to investigate; a quiet scan does not prove a photo is real.</p>
+    </div>
+    <ol>
+      <li><b>Choose a photo.</b><span>The file stays in your browser.</span></li>
+      <li><b>Run the scan.</b><span>Review the warning level and what it means.</span></li>
+      <li><b>Check the source.</b><span>Find the original post, edit history, or signed creation record.</span></li>
+    </ol>
+  </section>
+
+  <section class="faq" aria-labelledby="faq-title">
+    <p class="eyebrow">Straight answers</p>
+    <h2 id="faq-title">What an AI photo check can tell you</h2>
+    <details>
+      <summary>Can this prove an image was generated by AI?</summary>
+      <p>No. Detectors can be wrong, especially after screenshots, resizing, filters, or new generator releases. Use the signal as one clue and verify the source.</p>
+    </details>
+    <details>
+      <summary>Is my photo uploaded?</summary>
+      <p>No. This page loads the model only after you start a check, then analyzes the selected JPEG or PNG on your device.</p>
+    </details>
+    <details>
+      <summary>How sure is the result?</summary>
+      <p>Every check ends with a lean — likely AI-generated or likely real — and a confidence level. High, medium, and low confidence were set on generators and image sources the model never trained on. A low-confidence lean is a close call, so check the source before relying on it.</p>
+    </details>
+  </section>
+
+  <section class="cta">
+    <div>
+      <p class="eyebrow">Check more than one photo</p>
+      <h2>Scan photos, videos, screenshots, and text</h2>
+      <p>The full GAIC scanner also checks file history and supported signed creation records. Start with 3 checks a week, or get GAIC Pro for unlimited checks at $3.99/month.</p>
+    </div>
+    <a href="/ai-detector">Open the full scanner</a>
+  </section>
+</main>
+
+<footer>
+  <span>© <span id="year"></span> NIRO CORP</span>
+  <nav aria-label="Footer"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/support">Support</a></nav>
+</footer>
+<script src="model-config.js"></script>
+<script src="onnx-detector.js"></script>
+<script src="is-this-ai.js"></script>
+</body>
+</html>

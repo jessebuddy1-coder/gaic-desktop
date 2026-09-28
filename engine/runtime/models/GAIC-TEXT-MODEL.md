@@ -8,9 +8,9 @@ leaves it, and there is no network call, remote model, or telemetry.
 | --- | --- |
 | File | `text-detector.js` (engine and weights in one file, ~75 KB) |
 | Model | logistic regression, 56 stylometric measurements + 2,500-term lexicon |
-| Version string | `GAIC Text Model v2 (2026-09)` |
+| Version string | `GAIC Text Model v2 (2026-09)`, engine `gaic-text-v2.1` (adds the decision below) |
 | Input | English prose that already passed the app's gates (≥1,000 characters, ≥3 sentences, ≥70% English word tokens) |
-| Output | a 15–85 **pattern signal**, not a probability, plus the band and the measurements that drove it |
+| Output | a **lean** (AI-written or human-written), a **confidence level** (high, medium, low), and an estimated **AI likelihood** (1–99%), plus the technical band and the measurements that drove it |
 | Scoring unit | sentence-aligned passages of ~260 words; the document score is the word-weighted mean of passage logits (at most 64 passages) |
 
 ## What it measures
@@ -62,11 +62,52 @@ DetectRL, the Liang et al. detector-bias essays, and ArguGPT have no license
 in their repositories, so they were used **only as held-out tests** and
 never for training.
 
-## Bands
+## Decision: lean, confidence, and AI likelihood
 
-The pattern signal maps the model logit piecewise-linearly so that logit
-−0.63 → 34 and logit 2.47 → 66 (clamped to 15–85). The existing verdicts
-are reused unchanged:
+Every scored document ends with a lean and a confidence level; there is no
+undecided result. All three parts were set on **leave-one-corpus-out**
+scores, so they describe writing from sources the model never trained on.
+The script is `eval/textcal.py`.
+
+* **Lean.** AI-written when the document logit is ≥ **0.77**, otherwise
+  human-written. The threshold maximises balanced accuracy subject to at most
+  **5%** of human documents leaning AI (pooled out-of-corpus).
+* **AI likelihood.** A monotone knot table from isotonic regression (balanced
+  classes) maps the logit to the displayed percentage, shifted so that 50%
+  falls exactly on the lean threshold. That shift is a mild prior toward
+  "human-written", so a borderline document is never called AI.
+* **Confidence.** Each level's cut point is where the isotonic estimate of the
+  share of correct leans reaches its target: AI high ≥ 95% (logit ≥ 2.12),
+  AI medium ≥ 85% (≥ 1.26); human high ≥ 90% (≤ −5.42, rare), human medium
+  ≥ 75% (≤ −0.71). Everything else is low confidence.
+
+Measured share of correct leans per level (balanced classes):
+
+| Lean / confidence | Out-of-corpus: share of docs / correct | Held-out corpora: share / correct |
+| --- | --- | --- |
+| AI, high | 20% / **98.5%** | 23% / **99.8%** |
+| AI, medium | 9% / 90% | 11% / 96% |
+| AI, low | 6% / 76% | 6% / 84% |
+| Human, medium | 42% / 81% | 41% / 93% |
+| Human, low | 23% / 58% | 19% / 52% |
+
+At the lean threshold, human-written documents leaning AI: 4.8% out-of-corpus
+(per corpus 0.7–15%; the highest are ImBD-style polished text and CHEAT
+abstracts), 2.9% on DetectRL, and 2.6% on the non-native essays of the
+detector-bias set. AI documents leaning AI: 64% out-of-corpus, 67% on
+DetectRL, 79% on detector-bias, 92% on ArguGPT. A low-confidence lean in
+either direction is a close call and the app says so.
+
+A gradient-boosted alternative (dense features alone, stacked on the
+logistic margin, or blended with it) was tested under the same protocol and
+did not beat this model on out-of-corpus AUC by the required margin, so the
+logistic model stays.
+
+## Bands (technical read)
+
+The older pattern-signal scale maps the logit piecewise-linearly so that
+logit −0.63 → 34 and logit 2.47 → 66 (clamped to 15–85). Its bands are kept
+as the "technical read" line under the decisive headline:
 
 | Band | Verdict | How the cut-off was chosen |
 | --- | --- | --- |

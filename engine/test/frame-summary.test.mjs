@@ -13,8 +13,8 @@ const summary = ctx.frameSignalSummary;
 
 test("one spiky frame cannot raise a video to a warning", () => {
   const r = summary([2, 3, 1, 4, 2, 99.9, 3, 2]);
-  assert.equal(r.score, null);
-  assert.equal(r.verdict, "Sampled frames are inconclusive");
+  assert.equal(r.score, 2);
+  assert.equal(r.verdict, "Sampled frames below warning bands");
   assert.equal(r.maxScore, 99);
 });
 

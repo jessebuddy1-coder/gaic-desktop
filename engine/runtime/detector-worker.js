@@ -6,6 +6,9 @@
 "use strict";
 
 importScripts("model-config.js", "vendor/ort/ort.min.js");
+// The decision head ships as its own file so a missing copy degrades to the
+// engine v2 scan instead of stopping the worker.
+try { importScripts("image-head.js"); } catch (_) {}
 
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 const MAX_RESIZED_LONG_EDGE = 8192;
@@ -485,6 +488,104 @@ async function inferScore(activeSession, input) {
   return Number.isFinite(score) ? score : null;
 }
 
+/* ---------- decision head (engine v3) ----------
+   The bundled model's own last layer reads a single 384-value summary of the
+   picture. The v3 model file exposes a little more of what the same network
+   already computes (weights unchanged): the class token and the mean patch
+   token after blocks 6, 9, and 12, 2,304 values per view. A second linear head,
+   trained on 2025-2026 generators and on real photos, artwork, charts,
+   screenshots, and app interfaces, reads them. Every view the scan already runs
+   is read by the head; views are averaged in logit space, and the average is
+   mapped to a calibrated probability per scan kind (models/AICHECK-IMAGE-MODEL.md). */
+let imageHeadCache;
+function imageHead() {
+  if (imageHeadCache !== undefined) return imageHeadCache;
+  imageHeadCache = null;
+  const head = self.AICHECK_IMAGE_HEAD;
+  if (!head || !Number.isSafeInteger(head.dim) || head.dim < 1 ||
+      !head.weights || head.weights.length !== head.dim || !Number.isFinite(head.bias) ||
+      !head.calibration) return null;
+  const weights = Float32Array.from(head.weights);
+  if (!weights.every(Number.isFinite)) return null;
+  imageHeadCache = { version: String(head.version || ""), dim: head.dim, weights, bias: head.bias,
+    composite: head.composite === "picture" || head.composite === "mean" ? head.composite : "max",
+    calibration: head.calibration };
+  return imageHeadCache;
+}
+
+function headLogit(features) {
+  const head = imageHead();
+  if (!head || !features || features.length !== head.dim) return null;
+  let z = head.bias;
+  for (let i = 0; i < head.dim; i += 1) z += head.weights[i] * features[i];
+  return Number.isFinite(z) ? z : null;
+}
+
+async function inferView(activeSession, input) {
+  const feeds = { [activeSession.inputNames[0]]: input };
+  const output = await activeSession.run(feeds);
+  const values = Array.from(output[activeSession.outputNames[0]].data);
+  const score = resultScore(values);
+  const features = output.features;
+  return {
+    score: Number.isFinite(score) ? score : null,
+    head: features && features.data ? headLogit(features.data) : null,
+  };
+}
+
+function interpolateKnots(knots, x) {
+  if (x <= knots[0][0]) return knots[0][1];
+  for (let i = 1; i < knots.length; i += 1) {
+    if (x <= knots[i][0]) {
+      const [x0, y0] = knots[i - 1], [x1, y1] = knots[i];
+      return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+    }
+  }
+  return knots[knots.length - 1][1];
+}
+
+function calibratedHead(kind, logit) {
+  const head = imageHead();
+  const table = head && head.calibration && head.calibration[kind];
+  if (!table || !Array.isArray(table.knots) || table.knots.length < 2 || !Number.isFinite(logit)) return null;
+  const logOdds = interpolateKnots(table.knots, logit);
+  const probability = 1 / (1 + Math.exp(-logOdds));
+  return Number.isFinite(probability) ? { probability, cuts: table.cuts || null } : null;
+}
+
+function meanOf(values) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+/* The frame reading is the mean over the v5 views. A located picture (scan
+   v6) is read on its own views, and the composite reading follows the head's
+   declared rule. Video frames report their per-frame logit; the caller takes
+   the median over frames and calibrates it as "frame". */
+function headResult(frameLogits, pictureLogits, videoFrame) {
+  const head = imageHead();
+  if (!head || !frameLogits.length || frameLogits.some((value) => value === null)) return null;
+  const frame = meanOf(frameLogits);
+  let logit = frame, kind = videoFrame ? "frame" : "direct";
+  const picture = pictureLogits.length && pictureLogits.every((value) => value !== null)
+    ? meanOf(pictureLogits) : null;
+  if (picture !== null && !videoFrame) {
+    kind = "composite";
+    logit = head.composite === "picture" ? picture
+      : head.composite === "mean" ? (picture + frame) / 2
+        : Math.max(picture, frame);
+  }
+  const calibrated = calibratedHead(kind, logit);
+  if (!calibrated) return null;
+  return {
+    version: head.version.slice(0, 80),
+    kind,
+    logit: Math.round(logit * 1e4) / 1e4,
+    probability: Math.round(calibrated.probability * 1e4) / 1e4,
+    cuts: calibrated.cuts,
+    views: frameLogits.length + (picture !== null ? pictureLogits.length : 0),
+  };
+}
+
 /* ---------- scan v6: composite frames (screenshots, letterboxed frames) ----------
    The bundled model was trained on whole pictures resized so the shortest
    side is ~225-275 px, then randomly cropped and mirrored. A screenshot of a
@@ -865,6 +966,8 @@ self.addEventListener("message", async (event) => {
     reportProgress(id, "model-ready", 0, 0, null);
     let regionScores = [];
     const pictureLogits = [];
+    const frameHeadLogits = [];
+    const pictureHeadLogits = [];
     let pictureArea = 0;
     let sourceWidth = 0;
     let sourceHeight = 0;
@@ -885,21 +988,25 @@ self.addEventListener("message", async (event) => {
           self.postMessage({ id, ...boundedError("worker_unsupported") });
           return;
         }
-        const score = await inferScore(activeSession, input);
+        const view = await inferView(activeSession, input);
+        const score = view.score;
         if (!Number.isFinite(score)) {
           self.postMessage({ id, ...boundedError("invalid_output") });
           return;
         }
         regionScores.push({ id: region.id, aiLikelihood: score });
+        frameHeadLogits.push(view.head);
       }
       for (const pixels of split.picture) {
         reportProgress(id, "picture-view", split.picture.indexOf(pixels), split.picture.length, null);
-        const score = await inferScore(activeSession, tensorFromPixels(pixels));
+        const view = await inferView(activeSession, tensorFromPixels(pixels));
+        const score = view.score;
         if (!Number.isFinite(score)) {
           self.postMessage({ id, ...boundedError("invalid_output") });
           return;
         }
         pictureLogits.push(scoreLogit(score));
+        pictureHeadLogits.push(view.head);
       }
       pictureArea = Number(request.pictureArea) || 0;
       sourceWidth = Number(request.sourceWidth) || 0;
@@ -924,24 +1031,28 @@ self.addEventListener("message", async (event) => {
             self.postMessage({ id, ...boundedError("worker_unsupported") });
             return;
           }
-          const score = await inferScore(activeSession, input);
+          const view = await inferView(activeSession, input);
+          const score = view.score;
           if (!Number.isFinite(score)) {
             self.postMessage({ id, ...boundedError("invalid_output") });
             return;
           }
           regionScores.push({ id: region.id, aiLikelihood: score });
+          frameHeadLogits.push(view.head);
         }
         if (decoded.picture) {
           for (const view of PICTURE_SCAN.views) {
             reportProgress(id, "picture-view", PICTURE_SCAN.views.indexOf(view), PICTURE_SCAN.views.length, viewProgressRect(decoded.picture.rect, view, sourceWidth, sourceHeight));
             const input = tensorForView(decoded.bitmap, decoded.picture.rect, view);
             if (!input) continue;
-            const score = await inferScore(activeSession, input);
+            const view = await inferView(activeSession, input);
+            const score = view.score;
             if (!Number.isFinite(score)) {
               self.postMessage({ id, ...boundedError("invalid_output") });
               return;
             }
             pictureLogits.push(scoreLogit(score));
+            pictureHeadLogits.push(view.head);
           }
           pictureArea = decoded.picture.areaFrac;
         }
@@ -954,11 +1065,15 @@ self.addEventListener("message", async (event) => {
       self.postMessage({ id, ...boundedError("invalid_output") });
       return;
     }
+    // Absent when the head file or the model's feature output is missing; the
+    // caller then falls back to the engine v2 reading.
+    const head = headResult(frameHeadLogits, pictureHeadLogits, request.composite === false);
     self.postMessage({
       id,
       ok: true,
       result: {
         ...result,
+        ...(head ? { head } : {}),
         model: String(cfg.id || cfg.model).slice(0, 160),
         revision: String(cfg.revision || "").slice(0, 80),
         sourceWidth: Math.max(0, Math.round(sourceWidth)),
