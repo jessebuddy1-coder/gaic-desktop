@@ -7,3 +7,4 @@ onnx-detector.js
 support.html
 models/GAIC-TEXT-MODEL.md
 models/AICHECK-IMAGE-MODEL.md
+styles.css
