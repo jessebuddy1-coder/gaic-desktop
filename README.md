@@ -8,6 +8,10 @@ gaicheck.com. Source lives elsewhere.
 
 See [Releases](../../releases) for the current Windows and macOS builds.
 
+The [`engine/`](engine/README.md) folder holds the checker engine v2 update
+for the shared web runtime that every GAIC platform ships, with its measured
+results and tests.
+
 ## Signing status
 
 | Platform | Status | What the user sees |

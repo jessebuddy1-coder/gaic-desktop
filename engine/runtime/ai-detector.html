@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#fdfaf7"/>
+<meta name="color-scheme" content="light"/>
+<title>Official AI Scanner for Photos, Video &amp; Text | GAIC</title>
+<meta name="description" content="Use the official GAIC scanner to check suspicious photos, screenshots, video frames, and long text for signs of AI—privately on your device."/>
+<link rel="canonical" href="https://gaicheck.com/ai-detector"/>
+<meta property="og:title" content="GAIC — The Official AI Scanner"/>
+<meta property="og:description" content="Check suspicious photos, videos, screenshots, and text for signs of AI—privately on your device."/>
+<meta property="og:type" content="website"/>
+<meta property="og:url" content="https://gaicheck.com/ai-detector"/>
+<meta property="og:image" content="https://gaicheck.com/og-gaic.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta property="og:image:alt" content="GAIC private AI detector for images, video, and text"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<link rel="icon" href="app-mark.svg" type="image/svg+xml"/>
+<link rel="stylesheet" href="styles.css"/>
+<link rel="stylesheet" href="native-app.css"/>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to checker</a>
+<div class="page">
+  <nav class="nav" aria-label="Primary">
+    <a class="brand" href="index.html"><img class="brand-wordmark" src="gaic-wordmark.png" alt="GAIC"/></a>
+    <div class="links">
+      <a href="ai-detector.html" aria-current="page">Check</a>
+      <a href="/is-this-ai">Free check</a>
+      <a href="/free-ai-image-checker">Guide</a>
+      <a href="/blog">Blog</a>
+      <a href="#pricing">Pricing</a>
+      <a href="support.html">Help</a>
+      <a href="#" id="account-link" class="nav-account">Sign in</a>
+      <a href="#" id="go-pro-link" class="nav-pro" onclick="event.preventDefault();window.Purchases&&Purchases.showPaywall()">Plans &amp; billing</a>
+    </div>
+  </nav>
+  <script>
+  /* Pre-paint nav hydration: restore the last settled account/billing labels
+     from this browser's cache BEFORE first paint, so navigating here never
+     flashes the logged-out "Sign in / Plans & billing" defaults while
+     account.js / purchases.js verify state asynchronously. Cache is written
+     back after those scripts settle; the signed-in label is only restored
+     while a Supabase session token is still present. */
+  (function(){
+    try{
+      var cache=null;try{cache=JSON.parse(localStorage.getItem("aicheck.navcache")||"null")}catch(_){}
+      /* Pinned to GAIC's OWN project (dpvvsvhlilvyxyvqpurk). A wildcard
+         sb-*-auth-token match would treat the orphaned key from the retired
+         shared project as a live session and flash a former account's email
+         before account.js corrects it. Kept in step with config.js by
+         test/platform-readiness.mjs. Orphaned keys are purged so the retired
+         project's refresh token does not linger. */
+      var KEY="sb-dpvvsvhlilvyxyvqpurk-auth-token",stale=[];
+      for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i)||"";if(k!==KEY&&/^sb-.*-auth-token$/.test(k))stale.push(k)}
+      for(var s=0;s<stale.length;s++){try{localStorage.removeItem(stale[s])}catch(_){}}
+      var signedIn=!!localStorage.getItem(KEY);
+      var a=document.getElementById("account-link"),p=document.getElementById("go-pro-link");
+      if(a&&signedIn&&cache&&cache.a&&cache.a!=="Sign in")a.textContent=cache.a;
+      if(p&&cache&&cache.p)p.textContent=cache.p;
+      window.addEventListener("load",function(){
+        var save=function(){try{
+          var old={};try{old=JSON.parse(localStorage.getItem("aicheck.navcache")||"{}")||{}}catch(_){}
+          localStorage.setItem("aicheck.navcache",JSON.stringify({
+            a:a?a.textContent:old.a,p:p?p.textContent:old.p}));
+        }catch(_){}};
+        if(window.MutationObserver&&(a||p)){
+          var mo=new MutationObserver(save);
+          if(a)mo.observe(a,{childList:true,characterData:true,subtree:true});
+          if(p)mo.observe(p,{childList:true,characterData:true,subtree:true});
+        }
+        setTimeout(save,2500);
+      });
+    }catch(e){}
+  })();
+  </script>
+
+  <main class="section detector-page" id="main" tabindex="-1">
+    <div class="detector-head">
+      <div class="eyebrow">The official GAIC scanner · Built to be the world’s best</div>
+      <h1>The official way to check photos, videos, screenshots, and text for AI.</h1>
+      <p class="sub">Check suspicious content for signs of AI before you trust it, pay, repost, reply, or share.</p>
+      <p class="caveat">A scan is a lead, not proof. New AI tools and edited files can fool any detector.</p>
+      <p class="caveat">Start with 3 free checks per week. GAIC Pro removes the weekly limit and, on the web, can add Advanced Scan—a second AI opinion for images you choose when available.</p>
+      <a class="learn-link" href="support.html#limits">Why GAIC gives you a more complete check →</a>
+    </div>
+
+    <div class="card" id="detector-card">
+      <div id="a11y-status" aria-live="polite" role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"></div>
+      <div class="tabs" role="tablist" aria-label="Check text, a photo, a video, or a screen">
+        <button type="button" class="tab active" id="tab-text" role="tab" aria-selected="true" aria-controls="pane-text" tabindex="0" onclick="AICheck.switchTab('text',true)">Text</button>
+        <button type="button" class="tab" id="tab-image" role="tab" aria-selected="false" aria-controls="pane-image" tabindex="-1" onclick="AICheck.switchTab('image',true)">Photo, video, or screen</button>
+      </div>
+
+      <div class="pane" id="pane-text" role="tabpanel" aria-labelledby="tab-text">
+        <label class="input-label" for="text-input">English text to check</label>
+        <textarea id="text-input" maxlength="100000" aria-describedby="text-count text-limit-note" placeholder="Paste at least 1,000 characters of English text to check for common AI-style writing patterns."></textarea>
+        <div class="field-meta">
+          <span class="hint" id="text-count">0 characters · 0 KB · minimum 1,000 characters, maximum 100,000 characters / 256 KB</span>
+        </div>
+        <p class="field-note" id="text-limit-note">Maximum 100,000 characters or 256 KB. Short text, code, lists, translations, and non-native English are easy for this tool to get wrong. Your text stays on this device.</p>
+        <section class="writing-assist" aria-labelledby="writing-assist-title">
+          <div class="writing-assist-copy">
+            <h2 id="writing-assist-title">Make your writing clearer</h2>
+            <p>Get private wording suggestions without uploading your text. You approve every change.</p>
+            <p class="field-note">This edits wording only. It does not identify authorship, hide AI use, or guarantee any detector result.</p>
+          </div>
+          <div class="writing-assist-controls">
+            <label for="writing-mode">Editing goal</label>
+            <select id="writing-mode">
+              <option value="clear">Clearer</option>
+              <option value="concise">More concise</option>
+              <option value="plain">Plain language</option>
+            </select>
+            <button type="button" class="btn btn-line" onclick="AICheck.improveDraft()">Suggest edits</button>
+          </div>
+          <div class="writing-output-wrap" id="writing-output-wrap" hidden>
+            <label class="input-label" for="writing-output">Suggested draft</label>
+            <textarea id="writing-output" maxlength="100000" aria-describedby="writing-summary writing-review-note"></textarea>
+            <p class="writing-summary" id="writing-summary" role="status" aria-live="polite"></p>
+            <p class="field-note" id="writing-review-note">Read the whole draft before using it. Automatic edits can change meaning or tone.</p>
+            <div class="writing-output-actions">
+              <button type="button" class="btn btn-primary" onclick="AICheck.useImprovedDraft()">Use this draft</button>
+              <button type="button" class="btn btn-line" onclick="AICheck.copyImprovedDraft()">Copy</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="pane hidden" id="pane-image" role="tabpanel" aria-labelledby="tab-image">
+        <div class="quick-actions">
+          <button type="button" class="btn btn-primary" id="quick-scan-btn" onclick="AICheck.quickScan()"
+            aria-label="Choose a photo and check it on this device">⚡ Quick photo check</button>
+          <button type="button" class="btn btn-line btn-screen" id="screen-scan-btn" onclick="AICheck.scanScreen()"
+            aria-label="Choose a screen or window and check up to eight frames from it on this device">🖥️ Check my screen (4s)</button>
+        </div>
+        <p class="hint screen-note" id="screen-scan-note">GAIC watches the screen or window you pick for about 4 seconds, checks up to 8 frames from it on this device, then stops sharing. No recording is saved and nothing is uploaded. If capture is unavailable, GAIC gives screenshot instructions.</p>
+        <input type="file" id="file-input" accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,video/*" hidden/>
+        <label class="uploader" id="drop" for="file-input" role="button" tabindex="0" aria-label="Choose an image or video to check, or drop one here" aria-describedby="file-name">
+          <span class="upload-title">Choose an image or video</span>
+          <span class="upload-sub">or drop a file here</span>
+          <span class="hint" id="file-name">Photos: JPEG, PNG, GIF, WebP, or BMP. Videos: MP4, WebM, or MOV. GAIC checks up to 8 video frames; it does not analyze audio or full motion.</span>
+        </label>
+        <div class="cam-row">
+          <button type="button" class="btn btn-line" onclick="AICheck.pickPhoto('camera')">📷 Take photo</button>
+          <button type="button" class="btn btn-line" onclick="AICheck.pickPhoto('photos')">🖼 Choose photo</button>
+        </div>
+        <label class="source-context" for="source-url">
+          <span class="input-label">Where did you find it? <span class="optional">(optional)</span></span>
+          <input type="url" id="source-url" inputmode="url" maxlength="2048"
+            placeholder="For example: https://chatgpt.com/…"
+            aria-describedby="source-url-note"/>
+          <span class="field-note" id="source-url-note">Found it on an AI generator or social site? Add the page so GAIC can use the site name as context. The link is never opened, saved, or uploaded.</span>
+        </label>
+        <label class="consent">
+          <input type="checkbox" id="cloud-consent" disabled/>
+          <span id="cloud-consent-copy">Optional cloud scanning appears only for an active, server-verified GAIC Pro web subscription when the service is available. You must choose it for each image; otherwise the check stays on-device.</span>
+        </label>
+        <label class="checkline" id="remind-row" hidden>
+          <input type="checkbox" id="remind-toggle"/>
+          <span>Weekly reminder when your free checks refresh (a local notification on this device — asks for system permission first; no data leaves the device)</span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="check-btn" onclick="AICheck.run()">Check text for AI</button>
+        <span class="hint" id="quota-hint" aria-live="polite">Usage: 3 of 3 free checks left this week · <a href="#" onclick="event.preventDefault();window.Purchases&&Purchases.showPaywall()" style="color:var(--accent);font-weight:700">Plans &amp; billing</a></span>
+      </div>
+
+      <div class="scan-progress" id="scan-progress" hidden>
+        <div class="scan-progress-track" id="scan-progress-track" role="progressbar" aria-label="Video frame analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="scan-progress-bar"></span></div>
+        <p class="hint" id="scan-progress-text" style="margin:6px 0 0"></p>
+      </div>
+
+      <div class="analyzing" id="analyzing" hidden>
+        <div class="analyzing-frame" aria-hidden="true">
+          <span class="analyzing-corner tl"></span><span class="analyzing-corner tr"></span>
+          <span class="analyzing-corner bl"></span><span class="analyzing-corner br"></span>
+          <span class="analyzing-grid"></span>
+          <span class="analyzing-scanline"></span>
+        </div>
+        <p class="analyzing-label">Analyzing<span class="analyzing-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>
+        <p class="analyzing-stage" id="analyzing-stage" aria-live="polite"></p>
+        <div class="analyzing-progress" aria-hidden="true"><span id="analyzing-progress-bar"></span></div>
+        <p class="hint analyzing-sub">Your private on-device result comes first. An optional web Pro cloud check starts only if you selected it.</p>
+      </div>
+
+      <div class="result" id="result" role="region" aria-labelledby="verdict" aria-atomic="true" tabindex="-1">
+        <p class="result-kicker" id="result-kind">GAIC result</p>
+        <div class="score-line"><span id="verdict">—</span><span id="score">No numeric score</span></div>
+        <div class="meter" id="meter" role="img" aria-label="No numeric score" hidden><span id="bar"></span></div>
+        <p class="result-summary" id="result-summary">Run the official GAIC scan to see the result.</p>
+        <div class="result-next">
+          <strong>Your next move</strong>
+          <p id="result-guidance">Find the original post before you trust or share it.</p>
+        </div>
+        <details class="result-details">
+          <summary>See scan details</summary>
+          <p class="verdict-tech" id="verdict-tech" hidden></p>
+          <p class="result-metric-detail" id="result-metric-detail"></p>
+          <p class="content-desc" id="content-desc" hidden></p>
+          <p class="result-evidence" id="explain"></p>
+        </details>
+        <div class="result-feedback" id="result-feedback" hidden>
+          <span class="result-feedback-label" id="result-feedback-label">Was this right?</span>
+          <div class="result-feedback-choices" role="group" aria-labelledby="result-feedback-label" aria-describedby="result-feedback-consent">
+            <button type="button" class="result-feedback-btn" data-feedback="confirmed-correct">Yes</button>
+            <button type="button" class="result-feedback-btn" data-feedback="actually-real">It's a real photo</button>
+            <button type="button" class="result-feedback-btn" data-feedback="actually-ai">It's AI</button>
+          </div>
+          <p class="result-feedback-consent" id="result-feedback-consent">Correcting a result saves your correction and this photo on your device to help improve GAIC. <button type="button" class="footer-link-button" onclick="window.TrainingConsentUI&amp;&amp;TrainingConsentUI.open()">Manage in Settings</button></p>
+          <p class="result-feedback-note" id="result-feedback-note" role="status" aria-live="polite" hidden></p>
+        </div>
+        <div class="result-actions">
+          <button type="button" class="btn btn-line" onclick="AICheck.readResult()">🔊 Read result</button>
+          <button type="button" class="btn btn-line" id="share-result-btn" onclick="AICheck.shareResult()">↗ Share summary</button>
+        </div>
+        <div class="result-upsell" id="result-upsell" hidden>
+          <span id="result-upsell-copy">Upgrade to GAIC Pro for unlimited photo, video-frame, screenshot, and text checks.</span>
+          <button type="button" class="btn btn-primary" id="result-upsell-btn" onclick="window.Purchases&&Purchases.showPaywall('result_upsell')">Go Pro</button>
+        </div>
+        <p class="result-disclaimer">Never use a GAIC result as the sole basis for discipline, employment, education, moderation, legal, safety, or other consequential decisions.</p>
+      </div>
+    </div>
+
+    <div class="pricing" id="pricing">
+      <h2>Start free. Upgrade for unlimited checks.</h2>
+      <div class="price-grid">
+        <div class="price-card">
+          <h3>Free</h3>
+          <div class="price">$0</div>
+          <ul>
+            <li>3 checks each week across text, photos, videos, and screen captures</li>
+            <li>Your free checks reset each week</li>
+            <li>Private on-device scanning—nothing uploaded by default</li>
+          </ul>
+        </div>
+        <div class="price-card featured" id="pro-offer-card">
+          <h3 id="pro-offer-title">Checking web plan availability</h3>
+          <div class="price"><span id="pro-offer-price">Checking…</span><span id="pro-offer-period"></span></div>
+          <ul>
+            <li id="pro-offer-benefit">The free checker remains available</li>
+            <li id="pro-offer-cloud">No payment will be attempted unless the server confirms that new subscriptions are enabled</li>
+            <li id="pro-offer-platform">Existing web subscribers can still verify access and manage billing from this browser</li>
+          </ul>
+          <button class="btn btn-primary" id="pro-offer-button" onclick="window.Purchases&&Purchases.showPaywall()">Subscription status</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="faq" id="faq">
+      <h2>FAQ</h2>
+      <details>
+        <summary>What does a GAIC result mean?</summary>
+        <p>For photos and sampled video frames, GAIC checks AI-style visual patterns, file history, and supported signed Content Credentials. For long English text, it checks writing patterns that can also appear in human writing. New generators, screenshots, edits, and compression can fool any detector. Use the result as a reason to investigate the original source—not as a final verdict.</p>
+      </details>
+      <details>
+        <summary>Can GAIC check videos and my screen?</summary>
+        <p>Yes. For video, GAIC checks supported creation history and samples up to 8 still frames from the first ten minutes. It does not analyze audio or full motion. A screen check watches the screen or window you choose for about four seconds, checks up to 8 frames, then stops sharing without saving a recording. On iPhone, iPad, and in the mobile apps, GAIC asks you to take a screenshot instead. These checks stay on-device.</p>
+      </details>
+      <details>
+        <summary>Do my images leave my device?</summary>
+        <p>Not by default. Standard text, photo, video-frame, and screen checks run on your device. Your local result appears first. On the web, an active Pro subscriber can separately choose an optional cloud second signal when it is available; only that approved image, up to 3 MiB, is held in an AES-GCM-encrypted temporary queue for up to 15 minutes and sent to the configured inference provider. QStash receives only an opaque job ID and limited job details—not the image or decryption key. GAIC deletes the encrypted image promptly after completion or failure, and account deletion immediately removes the remaining GAIC-controlled job records. Native app scans stay on-device. See <a href="privacy.html">Privacy</a> for full details.</p>
+      </details>
+      <details>
+        <summary>What is verified creation history?</summary>
+        <p>Some files include signed Content Credentials (C2PA) that record how the media was created or changed. GAIC checks supported embedded credentials on your device, including the signature, connection to the file, and signer trust. A valid record is useful history, but it does not prove that the content is true. A missing record does not mean the file is fake.</p>
+      </details>
+      <details>
+        <summary>How do I cancel GAIC Pro?</summary>
+        <p>Web GAIC Pro subscriptions are billed by Stripe. While Pro is active, choose <b>Manage Pro</b> at the top of this page to open Stripe's secure portal and update or cancel it. Your Stripe receipt and <a href="support.html">support</a> remain available as fallbacks. Native GAIC Pro subscriptions are managed in your App Store or Google Play account settings.</p>
+      </details>
+    </div>
+
+    <div class="how" id="how">
+      <h2>Three steps to a stronger AI check</h2>
+      <ol>
+        <li><b>Choose suspicious content.</b> Paste long English text or select a photo, video, or screen capture.</li>
+        <li><b>Run the official GAIC scan.</b> GAIC checks the content, file details, visible page clues you provide, and supported source proof.</li>
+        <li><b>Verify before you trust.</b> Use the result to find the original source and check the surrounding story.</li>
+      </ol>
+    </div>
+  </main>
+
+  <footer>
+    © <span id="yr"></span> NIRO Corp · GAIC — <a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> · <a href="support.html">Support</a> · <button type="button" class="footer-link-button" onclick="window.NiroAnalytics&&NiroAnalytics.openSettings()">Privacy choices</button> · <button type="button" class="footer-link-button" onclick="window.TrainingConsentUI&&TrainingConsentUI.open()">Improve GAIC</button>
+  </footer>
+</div>
+
+<div class="analytics-choice-overlay" id="training-choice-overlay" hidden>
+  <section class="analytics-choice-card" role="dialog" aria-modal="true" aria-labelledby="training-choice-title" aria-describedby="training-choice-copy training-choice-status">
+    <button type="button" class="analytics-choice-close" id="training-close" aria-label="Close detector-improvement choices">✕</button>
+    <div class="analytics-choice-badge">Help improve our system</div>
+    <h2 id="training-choice-title">Improving the detector</h2>
+    <p id="training-choice-copy">Correcting a result &mdash; tapping &quot;It&rsquo;s a real photo&quot; or &quot;It&rsquo;s AI&quot; &mdash; saves that correction and that image on this device to help improve GAIC. Nothing is saved for this purpose unless you correct a result: running a scan never saves anything, and tapping &quot;Yes&quot; saves nothing either. Turning this off here stops corrections being saved at all and deletes what is already saved. Answers and images are stored on this device only &mdash; this release has no upload &mdash; and are never sold or used to identify you. Turning this off stops future use and deletes what is already stored. Global Privacy Control and Do Not Track always keep it off.</p>
+    <p class="analytics-choice-status" id="training-choice-status" role="status" aria-live="polite"></p>
+    <div class="analytics-choice-actions">
+      <button type="button" class="analytics-choice-button" id="training-allow" aria-pressed="false">Help improve</button>
+      <button type="button" class="analytics-choice-button" id="training-deny" aria-pressed="false">No thanks</button>
+    </div>
+    <p class="analytics-choice-note"><button type="button" class="footer-link-button" id="training-delete">Delete what I&#39;ve contributed</button> &middot; <a href="terms.html">Terms</a> &middot; <a href="privacy.html">Privacy</a></p>
+  </section>
+</div>
+<div class="analytics-choice-overlay" id="analytics-choice-overlay" hidden>
+  <section class="analytics-choice-card" role="dialog" aria-modal="true" aria-labelledby="analytics-choice-title" aria-describedby="analytics-choice-copy analytics-choice-status">
+    <button type="button" class="analytics-choice-close" id="analytics-close" aria-label="Close privacy choices">✕</button>
+    <div class="analytics-choice-badge">Optional analytics</div>
+    <h2 id="analytics-choice-title">Your privacy choice</h2>
+    <p id="analytics-choice-copy">Nothing is sent unless you choose Allow, and No thanks keeps it off. If you allow it, each event carries only a fixed event name, broad checker mode, web/iOS/Android surface, major.minor release, a coarse OS family and major version (like &quot;ios18&quot;), a broad device class (like &quot;iPhone&quot; or &quot;desktop&quot;), and a one-time random event ID&mdash;never your text, media, filename, metadata, screen frame, model score, result, receipt, account, a stable device or session identifier, location, page address, referrer, or full browser details. Global Privacy Control and Do Not Track always keep analytics off.</p>
+    <p class="analytics-choice-status" id="analytics-choice-status" role="status" aria-live="polite">Nothing is sent before you choose Allow.</p>
+    <div class="analytics-choice-actions">
+      <button type="button" class="analytics-choice-button" id="analytics-allow" aria-pressed="false">Allow analytics</button>
+      <button type="button" class="analytics-choice-button" id="analytics-deny" aria-pressed="false">No thanks</button>
+    </div>
+    <p class="analytics-choice-note">Change this anytime from Privacy choices. Global Privacy Control and Do Not Track always keep analytics off. <a href="privacy.html">Read the Privacy Policy</a>.</p>
+  </section>
+</div>
+<script src="config.js"></script>
+<script src="desktop-runtime.js"></script>
+<script src="analytics.js"></script>
+<script src="training-consent.js"></script>
+<script src="account.js"></script>
+<script src="niro-password.js"></script>
+<script src="account-delete.js"></script>
+<script src="native.js"></script>
+<script src="writing-assist.js"></script>
+<script src="text-detector.js"></script>
+<script src="model-config.js"></script>
+<script src="onnx-detector.js"></script>
+<script type="module" src="c2pa-verifier.mjs"></script>
+<script type="module" src="container-provenance.mjs"></script>
+<script type="module" src="provenance-verdict.mjs"></script>
+<script src="training-feedback.js"></script>
+<script src="subscription-offers.js"></script>
+<script src="purchases.js"></script>
+<script src="app.js"></script>
+<script src="native-shell.js"></script>
+<script>var _yr=document.getElementById('yr');if(_yr)_yr.textContent=new Date().getFullYear();</script>
+</body>
+</html>

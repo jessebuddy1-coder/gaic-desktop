@@ -1,0 +1,86 @@
+{
+ "cheat": {
+  "n_h": 726,
+  "n_ai": 449,
+  "auc_old": 0.89,
+  "auc_new": 0.948,
+  "human_flag_old": 0.0,
+  "human_flag_new": 0.0014,
+  "ai_flag_old": 0.0,
+  "ai_flag_new": 0.4009,
+  "ai_few_old": 0.5167,
+  "ai_few_new": 0.02
+ },
+ "ghostbuster": {
+  "n_h": 4031,
+  "n_ai": 782,
+  "auc_old": 0.553,
+  "auc_new": 0.907,
+  "human_flag_old": 0.0,
+  "human_flag_new": 0.0032,
+  "ai_flag_old": 0.0,
+  "ai_flag_new": 0.3453,
+  "ai_few_old": 0.7826,
+  "ai_few_new": 0.0729
+ },
+ "glimpse": {
+  "n_h": 143,
+  "n_ai": 449,
+  "auc_old": 0.768,
+  "auc_new": 0.936,
+  "human_flag_old": 0.0,
+  "human_flag_new": 0.0,
+  "ai_flag_old": 0.0,
+  "ai_flag_new": 0.4098,
+  "ai_few_old": 0.902,
+  "ai_few_new": 0.0935
+ },
+ "hart": {
+  "n_h": 3374,
+  "n_ai": 3604,
+  "auc_old": 0.792,
+  "auc_new": 0.988,
+  "human_flag_old": 0.0,
+  "human_flag_new": 0.008,
+  "ai_flag_old": 0.0,
+  "ai_flag_new": 0.6998,
+  "ai_few_old": 0.7461,
+  "ai_few_new": 0.0008
+ },
+ "imbd": {
+  "n_h": 26,
+  "n_ai": 1640,
+  "auc_old": 0.72,
+  "auc_new": 0.865,
+  "human_flag_old": 0.0,
+  "human_flag_new": 0.0385,
+  "ai_flag_old": 0.0,
+  "ai_flag_new": 0.3049,
+  "ai_few_old": 0.9098,
+  "ai_few_new": 0.0476
+ },
+ "outfox": {
+  "n_h": 1352,
+  "n_ai": 1191,
+  "auc_old": 0.272,
+  "auc_new": 0.873,
+  "human_flag_old": 0.0,
+  "human_flag_new": 0.0015,
+  "ai_flag_old": 0.0,
+  "ai_flag_new": 0.0344,
+  "ai_few_old": 0.984,
+  "ai_few_new": 0.3291
+ },
+ "raid": {
+  "n_h": 232,
+  "n_ai": 224,
+  "auc_old": 0.678,
+  "auc_new": 0.761,
+  "human_flag_old": 0.0,
+  "human_flag_new": 0.0,
+  "ai_flag_old": 0.0446,
+  "ai_flag_new": 0.1964,
+  "ai_few_old": 0.7946,
+  "ai_few_new": 0.4107
+ }
+}

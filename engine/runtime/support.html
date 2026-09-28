@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#fdfaf7"/>
+<meta name="color-scheme" content="light"/>
+<title>Support — GAIC</title>
+<meta name="description" content="Help with GAIC results, limitations, privacy, and subscriptions."/>
+<link rel="canonical" href="https://gaicheck.com/support"/>
+<link rel="icon" href="app-mark.svg" type="image/svg+xml"/>
+<link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<div class="page">
+  <nav class="nav">
+    <a class="brand" href="index.html"><img class="brand-wordmark" src="gaic-wordmark.png" alt="GAIC"/></a>
+    <div class="links"><a href="ai-detector.html">Check</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a><a href="support.html">Help</a><a class="nav-pro" href="/ai-detector.html#pricing">Go Pro</a></div>
+  </nav>
+  <div class="content">
+    <h1>Support</h1>
+    <p class="muted">Help with scanning suspicious photos, video frames, screenshots, and text, plus privacy and GAIC Pro.</p>
+
+    <h2 id="name">What does GAIC stand for?</h2>
+    <p>Get AI Checked. It is the same phrase behind our original address, <span class="muted">getaicheck.com</span>, which now redirects here to <span class="muted">gaicheck.com</span>. The name describes what you do with it: before you trust, pay, repost, or reply, you get the thing checked.</p>
+
+    <h2 id="limits">How accurate is GAIC?</h2>
+    <p><b>There is no single accuracy percentage we can honestly promise.</b> The text tool is an English-focused pattern model trained on public research collections, and it has not been validated as an authorship detector. Its 0–100 pattern signal is not a probability.</p>
+    <p>The bundled GAIC Image Model v2 is derived from the <a href="https://huggingface.co/OwensLab/commfor-model-224" target="_blank" rel="noopener">Community Forensics 224 model</a>, trained on content from thousands of generators available through 2024. It can still miss newer generators, heavily compressed or edited media, screenshots, small images, and unfamiliar content. GAIC therefore uses only a conservative high-signal warning band and never labels a low score “authentic.”</p>
+    <p>These limits are not unique to GAIC. OpenAI <a href="https://openai.com/index/new-ai-classifier-for-indicating-ai-written-text/" target="_blank" rel="noopener">withdrew its own text classifier</a> for low accuracy and warned against primary-decision use. Research has also documented <a href="https://arxiv.org/abs/2303.11156" target="_blank" rel="noopener">detector evasion and fundamental limits</a> and <a href="https://arxiv.org/abs/2304.02819" target="_blank" rel="noopener">bias against non-native English writing</a>. That is why GAIC asks you to check drafts, source history, and context instead of accusing someone from a score.</p>
+
+    <h2>Do you store my uploads?</h2>
+    <p>Text and image checks run on your device by default, and the on-device result appears first. If an active Pro subscriber separately selects optional cloud analysis on the web, GAIC accepts an image up to 3 MiB, keeps the background-job payload only as AES-GCM-encrypted ciphertext accessible to the job for up to 15 minutes, and sends the image to its configured inference provider. QStash sees only an opaque job ID and orchestration metadata. GAIC deletes the encrypted payload promptly when processing completes or fails, and bounded cleanup removes expired payload and owner-scoped, image-free status records. Deleting the account immediately purges remaining GAIC-controlled status, payload, and lease records. Native app checks stay on-device. See <a href="privacy.html">Privacy</a> for provider and retention details.</p>
+
+    <h2>What does writing assist do?</h2>
+    <p>The optional writing workspace suggests clearer, shorter, or plainer wording with deterministic rules on your device. You can edit the suggestion before using it, and your draft is not uploaded. It does not identify authorship, establish originality, disguise AI use, or guarantee a result from GAIC or another detector.</p>
+
+    <h2>Can I start GAIC from Siri, a shortcut, or another app?</h2>
+    <p>Yes, with deliberate foreground actions. On iOS 16 or later, say “Open GAIC scanner,” “Check a photo with GAIC,” or “Check text with GAIC.” In Shortcuts you can connect Take Screenshot, Select Photos, selected text, the Action Button, Back Tap, or a Share Sheet Shortcut to the matching GAIC action. A content action opens GAIC and checks that one item locally because you invoked it; it never watches the other app. A single-image HEIC/HEIF photo is converted locally to a bounded JPEG for the visual model, and the result warns that original Content Credentials and metadata were not evaluated. Android includes an Open Scanner launcher shortcut and can receive plain text or one supported image that you explicitly share to GAIC. A normal Android share is staged for review before checking. This release does not run an accessibility service, overlay other apps, or monitor the screen in the background.</p>
+
+    <h2>What are Content Credentials?</h2>
+    <p>Content Credentials can carry signed provenance claims about how media was created or changed. For supported embedded image and video credentials, GAIC locally checks the manifest, signature, connection to the file, validation state, and signer trust with the official Content Authenticity Initiative SDK and a bundled checksum-pinned official trust-list snapshot. Remote-manifest fetching is disabled. A “valid” result means the signer was not established as trusted against that snapshot; “trusted” means the trust check also passed. If the validator, local runtime, or trust list cannot complete the check, GAIC reports “unavailable,” not “invalid.” The <a href="https://c2pa.org/specifications/specifications/2.0/security/Harms_Modelling.html" target="_blank" rel="noopener">C2PA's own guidance</a> explains why even a valid manifest does not make content true, and missing credentials do not make content untrustworthy.</p>
+
+    <h2>What does a video check cover?</h2>
+    <p>GAIC first checks supported embedded Content Credentials locally, then requests eight still frames across at most the first ten minutes. Only confirmed seeks that the image model successfully scores contribute to the median and maximum; failed or timed-out seeks are labeled instead of being counted. Audio and motion over time are not analyzed, so this is not a complete deepfake or full-video analysis.</p>
+
+    <h2>How does optional cloud analysis work?</h2>
+    <p>Cloud analysis is a separately consented second signal for server-verified GAIC Pro web subscribers. It appears only when the queue, trained inference model, upload limit, and spend budget are all ready. Your on-device result is shown first; the cloud job then runs and polls in the background without locking the checker. A timeout or provider failure never replaces the local result. Native app checks stay on-device in this release.</p>
+
+    <h2>How do I manage a subscription?</h2>
+    <p>Eligible new subscribers can start with a 7-day free trial. On the web, creating a free account does not require a card; Stripe collects card information when you start Pro, then charges $3.99 per month after 7 days unless you cancel before the trial ends. In the iOS, macOS, and Android apps, Apple or Google collects the required payment information and charges the localized monthly store price after 7 days unless canceled. Prior trial users may be charged at confirmation.</p>
+    <p>For an active web subscription, sign in to the owning GAIC account, open the <a href="ai-detector.html">detector</a>, and choose <b>Manage Pro</b> to enter Stripe's secure billing portal. iOS and macOS subscriptions are managed in App Store account settings; Android subscriptions are managed in Google Play. GAIC never receives your full card number.</p>
+
+    <h2>What happens to billing if I delete my account?</h2>
+    <p>Deleting an account cancels its Stripe web subscription, expires any open GAIC Checkout Session, removes the associated Stripe customer and payment details from GAIC's active billing account, and purges remaining GAIC-controlled cloud job and encrypted-payload records. It does not cancel an Apple App Store or Google Play subscription. Cancel a native subscription in the applicable store before deleting your account if you do not want it to renew. Service and payment providers may retain limited records under their accounting, fraud-prevention, security, service, or legal policies.</p>
+
+    <h2>Contact us</h2>
+    <p>Email <a href="mailto:support@niroaerial.com">support@niroaerial.com</a> and we'll get back to you.</p>
+  </div>
+  <footer>© <span id="yr"></span> NIRO Corp · GAIC — <a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a></footer>
+</div>
+<script>document.getElementById('yr').textContent=new Date().getFullYear();</script>
+<script src="native.js"></script>
+</body>
+</html>
