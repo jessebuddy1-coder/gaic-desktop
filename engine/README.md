@@ -20,7 +20,7 @@ measured, and one support-page sentence (listed below).
 | --- | --- | --- |
 | **Text AI check** | 4 hand-set cues, score clamped 15–85 | trained on-device model (56 writing measurements + 2,500-term vocabulary), scored per passage, with an explanation of what drove it; same 15–85 scale, same three verdicts |
 | **Photo / screenshot scan** | max over 8 fixed crops of the whole frame, including the phone UI, page, or player bars around a picture | ordinary photos: **unchanged**, the same 8-crop scan byte-for-byte. Screenshots and letterboxed frames: the scanner also locates the picture inside the interface and reads it at the scale the model was trained on (scan v6), and the higher of the two readings is used; same model file |
-| **Video scan** | 8 evenly spaced frames, blank or fade frames scored as-is | same 8 frames, but a blank or fade frame is re-sampled nearby within its slot; letterboxed frames also get the located-picture reading |
+| **Video scan** | 8 evenly spaced frames, blank or fade frames scored as-is | same 8 frames and the same per-frame scan, but a blank or fade frame is re-sampled nearby within its slot instead of being scored |
 | **Screen scan** | 8 frames at 1024 px | 8 frames at up to 1600 px so small pictures keep detail; blank start frames are skipped; unchanged frames reuse the previous score |
 | **Rewriting (writing assist)** | 26/77 reviewed cases correct; could corrupt text (`an additional` → `an more`, `U.S.A` → `U. S. A`, flattened indentation, edited quotes) | 77/77; untouched text stays byte-identical; quotes, code, URLs, and emails are protected; verbs keep their tense; a/an and sentence capitals are fixed at edit sites |
 
@@ -38,7 +38,7 @@ relative path.
 | --- | --- |
 | `text-detector.js` | **new**: text engine and embedded weights (~75 KB) |
 | `ai-detector.html` | one added line: `<script src="text-detector.js"></script>` before `app.js` |
-| `app.js` | text check calls the new engine, falling back to the old heuristic if it is missing; explanation for screenshot results; blank-frame and screen-frame handling |
+| `app.js` | text check calls the new engine, falling back to the old heuristic if it is missing; explanation for screenshot results; blank-frame and screen-frame handling; video frames are marked to keep the 2.4.0 scan |
 | `detector-worker.js` | adds the scan v6 composite-frame reading; the v5 functions are unchanged and pinned by tests |
 | `onnx-detector.js` | the same composite-frame reading for the iOS 15 compatibility path |
 | `writing-assist.js` | rewriter v2 (same API and modes) |

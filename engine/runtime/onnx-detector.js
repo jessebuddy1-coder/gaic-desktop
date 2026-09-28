@@ -759,7 +759,9 @@
       // picture's views to the same batch; the worker reports the higher of
       // the v5 reading and the picture reading.
       let picture = null;
-      try { picture = locatePicture(img, width, height); } catch (_) { picture = null; }
+      if (!(file && file.aicheckScanHint === "video-frame")) {
+        try { picture = locatePicture(img, width, height); } catch (_) { picture = null; }
+      }
       if (picture) {
         for (const view of PICTURE_SCAN.views) {
           if (!paintCompatibilityView(context, img, picture.rect, view, s)) continue;
@@ -863,6 +865,7 @@
         activeWorker.postMessage({
           id,
           kind: "detect",
+          composite: !(file && file.aicheckScanHint === "video-frame"),
           bytes,
           type: String(file.type || "").slice(0, 100),
         }, [bytes]);

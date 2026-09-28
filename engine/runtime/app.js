@@ -1186,6 +1186,8 @@
 
   // Draw the current video frame to a canvas and wrap it as a PNG File so the
   // existing on-device image pipeline (OnnxDetector.detect) scores it unchanged.
+  // The frame is marked so the scanner keeps the reviewed 2.4.0 scan: the
+  // located-picture reading was calibrated on screenshots, not on lossy video.
   function frameToFile(video, cv, frameNumber) {
     return new Promise((resolve) => {
       try {
@@ -1195,7 +1197,12 @@
         cv.width = Math.max(1, Math.round(vw * scale));
         cv.height = Math.max(1, Math.round(vh * scale));
         cv.getContext("2d").drawImage(video, 0, 0, cv.width, cv.height);
-        cv.toBlob((blob) => resolve(blob ? new File([blob], "frame-" + frameNumber + ".png", { type: "image/png" }) : null), "image/png");
+        cv.toBlob((blob) => {
+          if (!blob) return resolve(null);
+          const frame = new File([blob], "frame-" + frameNumber + ".png", { type: "image/png" });
+          try { Object.defineProperty(frame, "aicheckScanHint", { value: "video-frame" }); } catch (_) {}
+          resolve(frame);
+        }, "image/png");
       } catch (e) { resolve(null); }
     });
   }
@@ -1268,8 +1275,7 @@
               const m = await window.OnnxDetector.detect(frame);
               if (m && Number.isFinite(m.aiLikelihood)) {
                 pct = Math.max(0, Math.min(100, m.aiLikelihood * 100));
-                note = Math.floor(pct + Number.EPSILON) + "/100 model signal" +
-                  (m.regionScan === "content-aware-tta-v6" ? " (picture located inside the frame)" : "");
+                note = Math.floor(pct + Number.EPSILON) + "/100 model signal";
               }
             } catch (_) {}
           }

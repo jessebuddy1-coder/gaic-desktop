@@ -11,7 +11,7 @@ index 2151026..7e26acc 100644
  <script src="onnx-detector.js"></script>
  <script type="module" src="c2pa-verifier.mjs"></script>
 diff --git a/app.js b/app.js
-index 19041e1..2fcec09 100644
+index 19041e1..2fc3a6c 100644
 --- a/app.js
 +++ b/app.js
 @@ -419,6 +419,45 @@
@@ -116,7 +116,7 @@ index 19041e1..2fcec09 100644
            metricLabel = "Strongest-region model signal — not AI %";
            const diagnostics = imageRegionScores.map((region) =>
              region.label + " " +
-@@ -1062,6 +1134,56 @@
+@@ -1062,8 +1134,60 @@
      return { status: provenance.status, sourceClass: provenance.sourceClass, verdict, lines };
    }
  
@@ -172,8 +172,26 @@ index 19041e1..2fcec09 100644
 +
    // Draw the current video frame to a canvas and wrap it as a PNG File so the
    // existing on-device image pipeline (OnnxDetector.detect) scores it unchanged.
++  // The frame is marked so the scanner keeps the reviewed 2.4.0 scan: the
++  // located-picture reading was calibrated on screenshots, not on lossy video.
    function frameToFile(video, cv, frameNumber) {
-@@ -1126,24 +1248,32 @@
+     return new Promise((resolve) => {
+       try {
+@@ -1073,7 +1197,12 @@
+         cv.width = Math.max(1, Math.round(vw * scale));
+         cv.height = Math.max(1, Math.round(vh * scale));
+         cv.getContext("2d").drawImage(video, 0, 0, cv.width, cv.height);
+-        cv.toBlob((blob) => resolve(blob ? new File([blob], "frame-" + frameNumber + ".png", { type: "image/png" }) : null), "image/png");
++        cv.toBlob((blob) => {
++          if (!blob) return resolve(null);
++          const frame = new File([blob], "frame-" + frameNumber + ".png", { type: "image/png" });
++          try { Object.defineProperty(frame, "aicheckScanHint", { value: "video-frame" }); } catch (_) {}
++          resolve(frame);
++        }, "image/png");
+       } catch (e) { resolve(null); }
+     });
+   }
+@@ -1126,16 +1255,22 @@
        const cv = document.createElement("canvas");
        const frameScores = [];
        const frameNotes = [];
@@ -201,10 +219,7 @@ index 19041e1..2fcec09 100644
              try {
                const m = await window.OnnxDetector.detect(frame);
                if (m && Number.isFinite(m.aiLikelihood)) {
-                 pct = Math.max(0, Math.min(100, m.aiLikelihood * 100));
--                note = Math.floor(pct + Number.EPSILON) + "/100 model signal";
-+                note = Math.floor(pct + Number.EPSILON) + "/100 model signal" +
-+                  (m.regionScan === "content-aware-tta-v6" ? " (picture located inside the frame)" : "");
+@@ -1144,6 +1279,7 @@
                }
              } catch (_) {}
            }
@@ -212,7 +227,7 @@ index 19041e1..2fcec09 100644
          }
          frameScores.push(pct);
          frameNotes.push(note);
-@@ -1271,17 +1401,27 @@
+@@ -1271,17 +1407,27 @@
          cleanup();
          resolve(frames.filter(Boolean));
        };
@@ -244,7 +259,7 @@ index 19041e1..2fcec09 100644
          } catch (e) { done(null); }
        });
        let sampler = 0;
-@@ -1342,20 +1482,28 @@
+@@ -1342,20 +1488,28 @@
  
    // Score every captured frame and aggregate into ONE verdict, mirroring the
    // video path: median is the typical frame, max is the worst, and a single
@@ -276,7 +291,7 @@ index 19041e1..2fcec09 100644
            }
          } catch (_) {}
        }
-@@ -3480,7 +3628,8 @@
+@@ -3480,7 +3634,8 @@
        normalizeImageRegionScores, isScreenCaptureLikeFrame, frameLayoutContext,
        normalizeSourceContext,
        seekVideo, sanitizeVideoProvenance, verifyVideoProvenance, videoProvenanceEvidence,
@@ -287,7 +302,7 @@ index 19041e1..2fcec09 100644
        startOptionalCloudAnalysis, scheduleOptionalCloudAnalysis,
        cancelActiveCloudAnalysis, beginResultRun, showResult,
 diff --git a/detector-worker.js b/detector-worker.js
-index 5e26901..f9bc1a6 100644
+index 5e26901..d996afe 100644
 --- a/detector-worker.js
 +++ b/detector-worker.js
 @@ -1,7 +1,8 @@
@@ -310,12 +325,23 @@ index 5e26901..f9bc1a6 100644
  });
  
  function configureOrtRuntime() {
-@@ -354,12 +356,14 @@ async function decodedRegions(bytes, type) {
+@@ -341,7 +343,7 @@ function tensorForRegion(bitmap, region) {
+   return new self.ort.Tensor("float32", values, [1, 3, size, size]);
+ }
+ 
+-async function decodedRegions(bytes, type) {
++async function decodedRegions(bytes, type, allowPicture) {
+   if (
+     !(bytes instanceof ArrayBuffer) ||
+     bytes.byteLength < 1 ||
+@@ -354,12 +356,16 @@ async function decodedRegions(bytes, type) {
    const bitmap = await createImageBitmap(new Blob([bytes], {
      type: typeof type === "string" && type.startsWith("image/") ? type : "application/octet-stream",
    }));
 +  let picture = null;
-+  try { picture = locatePicture(bitmap); } catch (_) { picture = null; }
++  if (allowPicture) {
++    try { picture = locatePicture(bitmap); } catch (_) { picture = null; }
++  }
    const regions = buildRegionPlan(bitmap.width, bitmap.height);
    if (!regions.length) {
      bitmap.close();
@@ -326,7 +352,7 @@ index 5e26901..f9bc1a6 100644
  }
  
  function tensorFromRgba(pixels, width, height) {
-@@ -400,6 +404,7 @@ function boundedRgbaRegions(request) {
+@@ -400,6 +406,7 @@ function boundedRgbaRegions(request) {
      const id = String(region.id || "");
      if (
        id === "compatibility-frame" ||
@@ -334,7 +360,7 @@ index 5e26901..f9bc1a6 100644
        !REGION_LABELS[id] ||
        seen.has(id) ||
        !(region.pixels instanceof ArrayBuffer) ||
-@@ -478,6 +483,340 @@ async function inferScore(activeSession, input) {
+@@ -478,6 +485,340 @@ async function inferScore(activeSession, input) {
    return Number.isFinite(score) ? score : null;
  }
  
@@ -675,7 +701,7 @@ index 5e26901..f9bc1a6 100644
  self.addEventListener("message", async (event) => {
    const request = event.data && typeof event.data === "object" ? event.data : {};
    const id = Number(request.id);
-@@ -493,15 +832,17 @@ self.addEventListener("message", async (event) => {
+@@ -493,15 +834,17 @@ self.addEventListener("message", async (event) => {
        return;
      }
      let regionScores = [];
@@ -696,7 +722,7 @@ index 5e26901..f9bc1a6 100644
          const input = tensorFromRgba(
            region.pixels,
            region.width,
-@@ -518,6 +859,15 @@ self.addEventListener("message", async (event) => {
+@@ -518,10 +861,21 @@ self.addEventListener("message", async (event) => {
          }
          regionScores.push({ id: region.id, aiLikelihood: score });
        }
@@ -712,7 +738,14 @@ index 5e26901..f9bc1a6 100644
        sourceWidth = Number(request.sourceWidth) || 0;
        sourceHeight = Number(request.sourceHeight) || 0;
      } else {
-@@ -542,11 +892,24 @@ self.addEventListener("message", async (event) => {
+-      const decoded = await decodedRegions(request.bytes, request.type);
++      // Video frames opt out: the picture reading was calibrated on
++      // screenshots and screen captures, not on lossy video frames.
++      const decoded = await decodedRegions(request.bytes, request.type, request.composite !== false);
+       if (!decoded) {
+         self.postMessage({ id, ...boundedError("worker_unsupported") });
+         return;
+@@ -542,11 +896,24 @@ self.addEventListener("message", async (event) => {
            }
            regionScores.push({ id: region.id, aiLikelihood: score });
          }
@@ -739,10 +772,10 @@ index 5e26901..f9bc1a6 100644
        self.postMessage({ id, ...boundedError("invalid_output") });
        return;
 diff --git a/models/AICHECK-IMAGE-MODEL.md b/models/AICHECK-IMAGE-MODEL.md
-index d0e5ef6..f3979d4 100644
+index d0e5ef6..cfcd689 100644
 --- a/models/AICHECK-IMAGE-MODEL.md
 +++ b/models/AICHECK-IMAGE-MODEL.md
-@@ -128,6 +128,91 @@ found 3/24 at 95, and adding middle-center raised two of those to the 99 band.
+@@ -128,6 +128,99 @@ found 3/24 at 95, and adding middle-center raised two of those to the 99 band.
  See the evaluation README and JSON artifacts for exact per-asset and per-region
  scores.
  
@@ -807,23 +840,31 @@ index d0e5ef6..f3979d4 100644
 +| Set | Scanner | AUC | Real ≥95 | Real ≥99 | AI ≥95 | AI ≥99 |
 +| --- | --- | ---: | ---: | ---: | ---: | ---: |
 +| Screenshots (520 real / 520 AI) | 2.4.0 v5 | 0.608 | 0/520 | 0/520 | 16/520 (3.1%) | 11/520 (2.1%) |
-+| Screenshots (520 real / 520 AI) | engine v2 | __SCR_AUC__ | __SCR_R95__ | __SCR_R99__ | __SCR_A95__ | __SCR_A99__ |
++| Screenshots (520 real / 520 AI) | engine v2 | **0.667** | **0/520** | **0/520** | **51/520 (9.8%)** | **32/520 (6.2%)** |
 +| Direct images (520 real / 1,447 AI) | 2.4.0 v5 | 0.695 | 6/520 | 1/520 | 209/1447 (14.4%) | 151/1447 (10.4%) |
-+| Direct images (520 real / 1,447 AI) | engine v2 | __DIR_AUC__ | __DIR_R95__ | __DIR_R99__ | __DIR_A95__ | __DIR_A99__ |
++| Direct images (520 real / 1,447 AI) | engine v2 | 0.695 | 6/520 | 1/520 | 210/1447 (14.5%) | 151/1447 (10.4%) |
 +
 +* On screenshots, the located-picture reading catches about three times as
 +  many AI images at both bands, and it raised no real screenshot to either
 +  band. With 0 of 520, the two-sided 95% Wilson upper bound on the
 +  real-screenshot false-positive rate is about 0.7%.
-+* Direct images are unchanged within noise: 149 of 150 randomly sampled
++* Direct images are effectively unchanged. 149 of 150 randomly sampled
 +  non-composite images produced byte-identical worker output, and the 150th
-+  failed to decode under both scanners.
++  failed to decode under both scanners. Because the composite headline is the
++  higher of the two readings, no image scored lower than under 2.4.0.
 +* The model still misses most modern closed-generator images. Among direct
 +  images, GPT-4o/gpt-image and Gemini outputs were flagged far less often than
 +  open diffusion-model samples. That limit is in the model, not the scan.
 +  Calibrated to the old scanner's false-positive level, every scan-plan
 +  variant we tried (view means, detail crops, multi-scale) caught roughly the
 +  same 12–15% at the 95 band on direct images.
++
++Video frames are excluded from the picture reading and keep the v5 scan.
++In a browser test on 30 synthetic slideshow clips, the picture reading raised
++one frame of a heavily compressed real-photo clip to 95/100, so its
++screenshot calibration does not transfer to lossy video. Screen-capture
++frames are lossless renderings of the display, like screenshots, so they keep
++the reading.
 +
 +Limits: the screenshots are synthetic renderings of real and generated
 +images, not captures from real devices. Open Images photos are web-resized
@@ -972,7 +1013,7 @@ index 0000000..27c0b39
 +selection, and reports live in `engine/eval/` of the gaic-desktop
 +repository, with a README listing the public sources to clone.
 diff --git a/onnx-detector.js b/onnx-detector.js
-index fb8e2b6..49b4f3a 100644
+index fb8e2b6..239fe4c 100644
 --- a/onnx-detector.js
 +++ b/onnx-detector.js
 @@ -461,6 +461,245 @@
@@ -1221,7 +1262,7 @@ index fb8e2b6..49b4f3a 100644
    // iOS 15 supports dedicated workers but not worker OffscreenCanvas. For a
    // conservative pre-validated input only, decode and resize on the UI thread,
    // then transfer a bounded eight-region RGBA batch. Pixel normalization and
-@@ -516,10 +755,28 @@
+@@ -516,10 +755,30 @@
          });
          await paintYield();
        }
@@ -1229,7 +1270,9 @@ index fb8e2b6..49b4f3a 100644
 +      // picture's views to the same batch; the worker reports the higher of
 +      // the v5 reading and the picture reading.
 +      let picture = null;
-+      try { picture = locatePicture(img, width, height); } catch (_) { picture = null; }
++      if (!(file && file.aicheckScanHint === "video-frame")) {
++        try { picture = locatePicture(img, width, height); } catch (_) { picture = null; }
++      }
 +      if (picture) {
 +        for (const view of PICTURE_SCAN.views) {
 +          if (!paintCompatibilityView(context, img, picture.rect, view, s)) continue;
@@ -1250,7 +1293,15 @@ index fb8e2b6..49b4f3a 100644
        };
      } finally { URL.revokeObjectURL(url); }
    }
-@@ -652,6 +909,7 @@
+@@ -606,6 +865,7 @@
+         activeWorker.postMessage({
+           id,
+           kind: "detect",
++          composite: !(file && file.aicheckScanHint === "video-frame"),
+           bytes,
+           type: String(file.type || "").slice(0, 100),
+         }, [bytes]);
+@@ -652,6 +912,7 @@
            regions: prepared.regions,
            sourceWidth: prepared.sourceWidth,
            sourceHeight: prepared.sourceHeight,

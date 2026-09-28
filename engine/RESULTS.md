@@ -57,9 +57,46 @@ The ONNX model file is unchanged. Ordinary photos get the 2.4.0 scan
 byte-for-byte: 149 of 150 sampled outputs were identical, and the 150th failed
 to decode under both scanners.
 
-__IMAGE_TABLE__
+The table runs the unmodified 2.4.0 worker and the engine v2 worker on the
+same files, with the same model file.
 
-__VIDEO_TABLE__
+| Set | Scanner | AUC | Real flagged ≥95 | Real flagged ≥99 | AI caught ≥95 | AI caught ≥99 |
+|---|---|---:|---:|---:|---:|---:|
+| **Screenshots** (520 real, 520 AI) | 2.4.0 | 0.608 | 0/520 | 0/520 | 16/520 (3.1%) | 11/520 (2.1%) |
+| **Screenshots** (520 real, 520 AI) | engine v2 | **0.667** | **0/520** | **0/520** | **51/520 (9.8%)** | **32/520 (6.2%)** |
+| Direct images (520 real, 1,447 AI) | 2.4.0 | 0.695 | 6/520 | 1/520 | 209/1447 (14.4%) | 151/1447 (10.4%) |
+| Direct images (520 real, 1,447 AI) | engine v2 | 0.695 | 6/520 | 1/520 | 210/1447 (14.5%) | 151/1447 (10.4%) |
+
+**Screenshots.** The six layouts are a dark AI chat, a light generator
+portal, a phone social feed, a phone photo viewer, a news article, and a
+letterboxed player.
+
+* The new scanner caught about **3× more AI screenshots** at both warning
+  bands and flagged no real screenshot.
+* Every layout was equal or better. The generator portal went from 0/78 to
+  10/78 AI caught at 95, and the news article from 1/101 to 13/101.
+* In a headless-Chromium screen-capture test, a screenshot was played as a
+  simulated shared-screen stream through the real capture code. The picture
+  was located in 4 of 4 captures.
+
+**Direct photos** are effectively unchanged, because this model misses most
+modern closed-generator images (GPT-4o, Gemini) no matter how the pixels are
+presented. Calibrated to the old scanner's false-alarm level, every scan
+variant tried caught about the same 12–15% at the 95 band. Improving
+direct-photo accuracy further needs a better image model. That would be a
+reviewed model swap, which this update deliberately does not make.
+
+**Video.** In real Chromium, on synthetic slideshow clips with fades, black
+title cards, letterbox bars, and heavy compression:
+
+* All **74 of 74** non-blank frames scored exactly as in 2.4.0.
+* The **6** black title-card frames were skipped instead of being scored as
+  evidence.
+
+Detection did not change measurably on this set: 0 of 15 AI and 0 of 15 real
+clips were flagged at the median, before and after. Video frames are
+deliberately kept out of the screenshot reading. On lossy video it raised one
+frame of a real clip to 95/100 in testing, so it was disabled for video.
 
 ## Speed
 

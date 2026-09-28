@@ -189,23 +189,31 @@ worker. They used the same ONNX file and the same harness.
 | Set | Scanner | AUC | Real ≥95 | Real ≥99 | AI ≥95 | AI ≥99 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | Screenshots (520 real / 520 AI) | 2.4.0 v5 | 0.608 | 0/520 | 0/520 | 16/520 (3.1%) | 11/520 (2.1%) |
-| Screenshots (520 real / 520 AI) | engine v2 | __SCR_AUC__ | __SCR_R95__ | __SCR_R99__ | __SCR_A95__ | __SCR_A99__ |
+| Screenshots (520 real / 520 AI) | engine v2 | **0.667** | **0/520** | **0/520** | **51/520 (9.8%)** | **32/520 (6.2%)** |
 | Direct images (520 real / 1,447 AI) | 2.4.0 v5 | 0.695 | 6/520 | 1/520 | 209/1447 (14.4%) | 151/1447 (10.4%) |
-| Direct images (520 real / 1,447 AI) | engine v2 | __DIR_AUC__ | __DIR_R95__ | __DIR_R99__ | __DIR_A95__ | __DIR_A99__ |
+| Direct images (520 real / 1,447 AI) | engine v2 | 0.695 | 6/520 | 1/520 | 210/1447 (14.5%) | 151/1447 (10.4%) |
 
 * On screenshots, the located-picture reading catches about three times as
   many AI images at both bands, and it raised no real screenshot to either
   band. With 0 of 520, the two-sided 95% Wilson upper bound on the
   real-screenshot false-positive rate is about 0.7%.
-* Direct images are unchanged within noise: 149 of 150 randomly sampled
+* Direct images are effectively unchanged. 149 of 150 randomly sampled
   non-composite images produced byte-identical worker output, and the 150th
-  failed to decode under both scanners.
+  failed to decode under both scanners. Because the composite headline is the
+  higher of the two readings, no image scored lower than under 2.4.0.
 * The model still misses most modern closed-generator images. Among direct
   images, GPT-4o/gpt-image and Gemini outputs were flagged far less often than
   open diffusion-model samples. That limit is in the model, not the scan.
   Calibrated to the old scanner's false-positive level, every scan-plan
   variant we tried (view means, detail crops, multi-scale) caught roughly the
   same 12–15% at the 95 band on direct images.
+
+Video frames are excluded from the picture reading and keep the v5 scan.
+In a browser test on 30 synthetic slideshow clips, the picture reading raised
+one frame of a heavily compressed real-photo clip to 95/100, so its
+screenshot calibration does not transfer to lossy video. Screen-capture
+frames are lossless renderings of the display, like screenshots, so they keep
+the reading.
 
 Limits: the screenshots are synthetic renderings of real and generated
 images, not captures from real devices. Open Images photos are web-resized

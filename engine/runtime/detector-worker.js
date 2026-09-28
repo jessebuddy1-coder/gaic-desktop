@@ -343,7 +343,7 @@ function tensorForRegion(bitmap, region) {
   return new self.ort.Tensor("float32", values, [1, 3, size, size]);
 }
 
-async function decodedRegions(bytes, type) {
+async function decodedRegions(bytes, type, allowPicture) {
   if (
     !(bytes instanceof ArrayBuffer) ||
     bytes.byteLength < 1 ||
@@ -357,7 +357,9 @@ async function decodedRegions(bytes, type) {
     type: typeof type === "string" && type.startsWith("image/") ? type : "application/octet-stream",
   }));
   let picture = null;
-  try { picture = locatePicture(bitmap); } catch (_) { picture = null; }
+  if (allowPicture) {
+    try { picture = locatePicture(bitmap); } catch (_) { picture = null; }
+  }
   const regions = buildRegionPlan(bitmap.width, bitmap.height);
   if (!regions.length) {
     bitmap.close();
@@ -871,7 +873,9 @@ self.addEventListener("message", async (event) => {
       sourceWidth = Number(request.sourceWidth) || 0;
       sourceHeight = Number(request.sourceHeight) || 0;
     } else {
-      const decoded = await decodedRegions(request.bytes, request.type);
+      // Video frames opt out: the picture reading was calibrated on
+      // screenshots and screen captures, not on lossy video frames.
+      const decoded = await decodedRegions(request.bytes, request.type, request.composite !== false);
       if (!decoded) {
         self.postMessage({ id, ...boundedError("worker_unsupported") });
         return;

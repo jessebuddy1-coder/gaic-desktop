@@ -25,3 +25,12 @@ test("the on-device-only block still has no network primitives", () => {
   assert.ok(start > 0 && end > start);
   assert.doesNotMatch(app.slice(start, end), /\bfetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|EventSource/);
 });
+
+test("video frames keep the 2.4.0 scan; screenshots and screen frames may add the picture reading", () => {
+  assert.match(app, /Object\.defineProperty\(frame, "aicheckScanHint", \{ value: "video-frame" \}\)/);
+  const compat = read("onnx-detector.js"), worker = read("detector-worker.js");
+  assert.match(compat, /composite: !\(file && file\.aicheckScanHint === "video-frame"\)/);
+  assert.match(compat, /if \(!\(file && file\.aicheckScanHint === "video-frame"\)\) \{/);
+  assert.match(worker, /decodedRegions\(request\.bytes, request\.type, request\.composite !== false\)/);
+  assert.match(worker, /if \(allowPicture\) \{\s*try \{ picture = locatePicture\(bitmap\); \}/);
+});
