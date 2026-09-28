@@ -700,11 +700,50 @@
     return true;
   }
 
+  // Scan progress for the checker's viewfinder (see detector-worker.js). The
+  // worker's messages are re-validated here: a known phase, small integers,
+  // and a rectangle inside the unit square. Progress is UI-only; it never
+  // settles a request and never enters a result.
+  const PROGRESS_PHASES = Object.freeze(["model-ready", "decoded", "picture", "region", "picture-view"]);
+  function unitRect(value) {
+    if (!value || typeof value !== "object") return null;
+    const x = Number(value.x), y = Number(value.y);
+    const width = Number(value.width), height = Number(value.height);
+    if (![x, y, width, height].every(Number.isFinite)) return null;
+    if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1.001 || y + height > 1.001) return null;
+    return { x, y, width, height };
+  }
+  function sanitizeProgress(value) {
+    if (!value || typeof value !== "object" || !PROGRESS_PHASES.includes(value.phase)) return null;
+    const count = (n) => (Number.isSafeInteger(n) && n >= 0 && n <= 64 ? n : 0);
+    return { phase: value.phase, index: count(value.index), total: count(value.total), rect: unitRect(value.rect) };
+  }
+  function progressReporter(onProgress) {
+    if (typeof onProgress !== "function") return () => {};
+    return (value) => {
+      const progress = sanitizeProgress(value);
+      if (!progress) return;
+      try { onProgress(progress); } catch (_) {}
+    };
+  }
+  function sourceUnitRect(x, y, width, height, sourceWidth, sourceHeight) {
+    if (!(sourceWidth > 0 && sourceHeight > 0)) return null;
+    return unitRect({ x: x / sourceWidth, y: y / sourceHeight, width: width / sourceWidth, height: height / sourceHeight });
+  }
+  function viewUnitRect(rect, view, size, sourceWidth, sourceHeight) {
+    const geometry = viewGeometry(rect.width, rect.height, view.resize, size, view.fx, view.fy);
+    if (!geometry) return null;
+    const sx = rect.width / geometry.resizedWidth, sy = rect.height / geometry.resizedHeight;
+    return sourceUnitRect(rect.x + geometry.cropX * sx, rect.y + geometry.cropY * sy,
+      size * sx, size * sy, sourceWidth, sourceHeight);
+  }
+
   // iOS 15 supports dedicated workers but not worker OffscreenCanvas. For a
   // conservative pre-validated input only, decode and resize on the UI thread,
   // then transfer a bounded eight-region RGBA batch. Pixel normalization and
   // every ONNX/WASM operation remain in detector-worker.js.
-  async function preprocessSmallRgba(file) {
+  async function preprocessSmallRgba(file, report) {
+    report = typeof report === "function" ? report : () => {};
     if (!(await legacyInputAllowed(file))) {
       lastError = LEGACY_LIMIT_ERROR;
       return null;
@@ -737,6 +776,8 @@
       const height = img.naturalHeight || img.height;
       const plan = buildCompatibilityRegionPlan(width, height, cfg, s);
       if (!plan.length) return null;
+      report({ phase: "decoded", index: 0, total: plan.length, rect: null });
+      const progressRects = { region: [], view: [] };
       await paintYield();
       const cv = document.createElement("canvas"); cv.width = s; cv.height = s;
       const context = cv.getContext("2d", { willReadFrequently: true });
@@ -753,6 +794,7 @@
           width: s,
           height: s,
         });
+        progressRects.region.push(sourceUnitRect(region.sourceX, region.sourceY, region.sourceWidth, region.sourceHeight, width, height));
         await paintYield();
       }
       // Composite frames (screenshots, letterboxed frames) add the located
@@ -763,6 +805,7 @@
         try { picture = locatePicture(img, width, height); } catch (_) { picture = null; }
       }
       if (picture) {
+        report({ phase: "picture", index: 0, total: PICTURE_SCAN.views.length, rect: sourceUnitRect(picture.rect.x, picture.rect.y, picture.rect.width, picture.rect.height, width, height) });
         for (const view of PICTURE_SCAN.views) {
           if (!paintCompatibilityView(context, img, picture.rect, view, s)) continue;
           regions.push({
@@ -771,6 +814,7 @@
             width: s,
             height: s,
           });
+          progressRects.view.push(viewUnitRect(picture.rect, view, s, width, height));
           await paintYield();
         }
       }
@@ -779,6 +823,7 @@
         sourceWidth: width,
         sourceHeight: height,
         pictureArea: picture ? picture.areaFrac : 0,
+        progressRects,
       };
     } finally { URL.revokeObjectURL(url); }
   }
@@ -805,6 +850,16 @@
         const response = event.data && typeof event.data === "object" ? event.data : {};
         const request = workerRequests.get(response.id);
         if (!request) return;
+        if (response.progress) {
+          // A progress note is not an answer: the request stays open, and its
+          // timeout restarts because the worker is demonstrably still working.
+          if (request.expire) {
+            clearTimeout(request.timeout);
+            request.timeout = setTimeout(request.expire, WORKER_TIMEOUT_MS);
+          }
+          if (request.progress) request.progress(response.progress);
+          return;
+        }
         workerRequests.delete(response.id);
         clearTimeout(request.timeout);
         if (response.ok === true && response.result) {
@@ -838,7 +893,7 @@
     return worker;
   }
 
-  async function detectInWorker(file) {
+  async function detectInWorker(file, report) {
     const activeWorker = ensureWorker();
     if (
       !activeWorker ||
@@ -855,12 +910,13 @@
     catch (_) { return { attempted: true, result: null }; }
     const id = ++workerSequence;
     return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
+      const expire = () => {
         workerRequests.delete(id);
         stopWorker("Background inference timed out.");
         resolve({ attempted: true, result: null });
-      }, WORKER_TIMEOUT_MS);
-      workerRequests.set(id, { resolve, timeout });
+      };
+      const timeout = setTimeout(expire, WORKER_TIMEOUT_MS);
+      workerRequests.set(id, { resolve, timeout, expire, progress: report });
       try {
         activeWorker.postMessage({
           id,
@@ -878,11 +934,12 @@
     });
   }
 
-  async function detectPixelsInWorker(file) {
+  async function detectPixelsInWorker(file, report) {
     const activeWorker = ensureWorker();
     if (!activeWorker) return null;
+    report = typeof report === "function" ? report : () => {};
     let prepared;
-    try { prepared = await preprocessSmallRgba(file); }
+    try { prepared = await preprocessSmallRgba(file, report); }
     catch (_) {
       lastError = "This device could not prepare a bounded image frame.";
       return null;
@@ -894,14 +951,27 @@
       return null;
     }
     const id = ++workerSequence;
+    // The worker names each region by its place in the batch; the rectangles
+    // were measured here while the batch was prepared and never leave this page.
+    const rects = prepared.progressRects || { region: [], view: [] };
     return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
+      const expire = () => {
         workerRequests.delete(id);
         stopWorker("Background inference timed out.");
         resolve(null);
-      }, WORKER_TIMEOUT_MS);
+      };
+      const timeout = setTimeout(expire, WORKER_TIMEOUT_MS);
       workerRequests.set(id, {
         timeout,
+        expire,
+        progress: (value) => {
+          const progress = sanitizeProgress(value);
+          if (!progress) return;
+          const list = progress.phase === "region" ? rects.region
+            : progress.phase === "picture-view" ? rects.view : null;
+          if (!progress.rect && list) progress.rect = list[progress.index] || null;
+          report(progress);
+        },
         resolve: (outcome) => resolve(outcome && outcome.result || null)
       });
       try {
@@ -923,15 +993,18 @@
     });
   }
 
-  async function detect(file) {
+  async function detect(file, options) {
     lastError = "";
+    // Optional options.onProgress(progress) follows the scan for the UI. It is
+    // sanitized and wrapped, so a failing callback can never fail a check.
+    const report = progressReporter(options && options.onProgress);
     // Modern browsers keep decode, resize, normalization, and ONNX inference in
     // the worker. iOS 15 fails closed for larger legacy inputs before its
     // conservative compatibility decode; model loading and inference never
     // leave the worker.
-    const background = await detectInWorker(file);
+    const background = await detectInWorker(file, report);
     if (background.attempted) return background.result;
-    if (background.needsPixels) return detectPixelsInWorker(file);
+    if (background.needsPixels) return detectPixelsInWorker(file, report);
     lastError = "This device cannot run the image model in a background worker.";
     return null;
   }

@@ -11,8 +11,9 @@ of runtime files carries the update to all of them.
 Nothing else changes. The UI, verdict wording, result format, quotas,
 privacy behavior, the bundled image model file, and the cloud path all stay
 the same, and every check still runs on the device. The only other
-user-visible edits are the result explanations, which describe what was
-measured, and one support-page sentence (listed below).
+user-visible edits are the in-progress scanning panel (below), the result
+explanations, which describe what was measured, and one support-page
+sentence (listed below).
 
 ## What changed
 
@@ -22,6 +23,7 @@ measured, and one support-page sentence (listed below).
 | **Photo / screenshot scan** | max over 8 fixed crops of the whole frame, including the phone UI, page, or player bars around a picture | ordinary photos: **unchanged**, the same 8-crop scan byte-for-byte. Screenshots and letterboxed frames: the scanner also locates the picture inside the interface and reads it at the scale the model was trained on (scan v6), and the higher of the two readings is used; same model file |
 | **Video scan** | 8 evenly spaced frames, blank or fade frames scored as-is | same 8 frames and the same per-frame scan, but a blank or fade frame is re-sampled nearby within its slot instead of being scored |
 | **Screen scan** | 8 frames at 1024 px | 8 frames at up to 1600 px so small pictures keep detail; blank start frames are skipped; unchanged frames reuse the previous score |
+| **Scanning panel** | a fixed animation with timed narration, some of it for checks that did not run (a screen check "looked for signed creation history"); video and screen showed two progress bars | a viewfinder showing the person's own photo, sampled frame, or text: the picture develops from grey behind a sweeping beam, a bracket box locks onto each view the model is actually reading, a "picture" box marks a picture found inside a screenshot, and the narration follows real pipeline events in order. One progress bar fed by real progress; a still design for reduced motion. Everything outside the panel is pixel-identical |
 | **Rewriting (writing assist)** | 26/77 reviewed cases correct; could corrupt text (`an additional` → `an more`, `U.S.A` → `U. S. A`, flattened indentation, edited quotes) | 77/77; untouched text stays byte-identical; quotes, code, URLs, and emails are protected; verbs keep their tense; a/an and sentence capitals are fixed at edit sites |
 
 Measured results are in [RESULTS.md](RESULTS.md). The text model card is
@@ -37,10 +39,11 @@ relative path.
 | File | Change |
 | --- | --- |
 | `text-detector.js` | **new**: text engine and embedded weights (~75 KB) |
-| `ai-detector.html` | one added line: `<script src="text-detector.js"></script>` before `app.js` |
-| `app.js` | text check calls the new engine, falling back to the old heuristic if it is missing; explanation for screenshot results; blank-frame and screen-frame handling; video frames are marked to keep the 2.4.0 scan |
-| `detector-worker.js` | adds the scan v6 composite-frame reading; the v5 functions are unchanged and pinned by tests |
-| `onnx-detector.js` | the same composite-frame reading for the iOS 15 compatibility path |
+| `ai-detector.html` | one added line: `<script src="text-detector.js"></script>` before `app.js`; the scanning panel gains a viewfinder layer, a flash layer, and a visible/announced pair of stage spans |
+| `app.js` | text check calls the new engine, falling back to the old heuristic if it is missing; explanation for screenshot results; blank-frame and screen-frame handling; video frames are marked to keep the 2.4.0 scan; the scanning viewfinder (`setAnalyzing`/`finishAnalyzing`, an event-driven stage queue, and one-line hooks in the pipeline) |
+| `detector-worker.js` | adds the scan v6 composite-frame reading; the v5 functions are unchanged and pinned by tests; progress messages (phase, position, and view rectangle) before each view is read |
+| `onnx-detector.js` | the same composite-frame reading for the iOS 15 compatibility path; optional `detect(file, { onProgress })`, where progress never settles a request |
+| `styles.css` | only the `.analyzing*` panel rules: the viewfinder's compositor-only animations and their reduced-motion states |
 | `writing-assist.js` | rewriter v2 (same API and modes) |
 | `support.html` | one sentence: the text tool is now described as a trained pattern model, not a "hand-built heuristic" |
 | `models/GAIC-TEXT-MODEL.md` | **new** model card |
@@ -93,4 +96,7 @@ The tests need no dependencies. They cover:
 * exact parity of the v6 center view with the reviewed v5 official view;
 * that the worker and the iOS 15 path share one composite-frame plan;
 * the video and screen sampling contract;
-* that the on-device-only block contains no network calls.
+* that the on-device-only block contains no network calls;
+* the scanning viewfinder: progress never resolves a request, stages keep
+  their order and dwell, preview URLs are revoked, no preview or rectangle
+  reaches a result, and every animation has a reduced-motion state.

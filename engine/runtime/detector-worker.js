@@ -819,6 +819,35 @@ function combineWithPicture(regionResult, pictureLogits, pictureArea) {
   };
 }
 
+/* Scan progress for the checker's on-screen viewfinder. Before each view is
+   read, the worker names it: the phase, its place in the plan, and the
+   rectangle it covers as fractions (0-1) of the source image. Progress
+   messages carry no pixels and no scores, never settle a request, and never
+   enter the result. */
+function progressRect(x, y, width, height, sourceWidth, sourceHeight) {
+  if (!(sourceWidth > 0 && sourceHeight > 0)) return null;
+  const unit = (value) => Math.max(0, Math.min(1, Math.round(value * 10000) / 10000));
+  const left = unit(x / sourceWidth), top = unit(y / sourceHeight);
+  return {
+    x: left,
+    y: top,
+    width: Math.min(1 - left, unit(width / sourceWidth)),
+    height: Math.min(1 - top, unit(height / sourceHeight)),
+  };
+}
+
+function viewProgressRect(rect, view, sourceWidth, sourceHeight) {
+  const geometry = viewGeometry(rect.width, rect.height, view.resize, cfg.size, view.fx, view.fy);
+  if (!geometry) return null;
+  const sx = rect.width / geometry.resizedWidth, sy = rect.height / geometry.resizedHeight;
+  return progressRect(rect.x + geometry.cropX * sx, rect.y + geometry.cropY * sy,
+    cfg.size * sx, cfg.size * sy, sourceWidth, sourceHeight);
+}
+
+function reportProgress(id, phase, index, total, rect) {
+  try { self.postMessage({ id, progress: { phase, index, total, rect: rect || null } }); } catch (_) {}
+}
+
 self.addEventListener("message", async (event) => {
   const request = event.data && typeof event.data === "object" ? event.data : {};
   const id = Number(request.id);
@@ -833,6 +862,7 @@ self.addEventListener("message", async (event) => {
       self.postMessage({ id, ...boundedError("model_unavailable") });
       return;
     }
+    reportProgress(id, "model-ready", 0, 0, null);
     let regionScores = [];
     const pictureLogits = [];
     let pictureArea = 0;
@@ -845,6 +875,7 @@ self.addEventListener("message", async (event) => {
         return;
       }
       for (const region of split.regions) {
+        reportProgress(id, "region", split.regions.indexOf(region), split.regions.length, null);
         const input = tensorFromRgba(
           region.pixels,
           region.width,
@@ -862,6 +893,7 @@ self.addEventListener("message", async (event) => {
         regionScores.push({ id: region.id, aiLikelihood: score });
       }
       for (const pixels of split.picture) {
+        reportProgress(id, "picture-view", split.picture.indexOf(pixels), split.picture.length, null);
         const score = await inferScore(activeSession, tensorFromPixels(pixels));
         if (!Number.isFinite(score)) {
           self.postMessage({ id, ...boundedError("invalid_output") });
@@ -882,8 +914,11 @@ self.addEventListener("message", async (event) => {
       }
       sourceWidth = decoded.bitmap.width;
       sourceHeight = decoded.bitmap.height;
+      reportProgress(id, "decoded", 0, decoded.regions.length, null);
+      if (decoded.picture) reportProgress(id, "picture", 0, PICTURE_SCAN.views.length, progressRect(decoded.picture.rect.x, decoded.picture.rect.y, decoded.picture.rect.width, decoded.picture.rect.height, sourceWidth, sourceHeight));
       try {
         for (const region of decoded.regions) {
+          reportProgress(id, "region", decoded.regions.indexOf(region), decoded.regions.length, progressRect(region.sourceX, region.sourceY, region.sourceWidth, region.sourceHeight, sourceWidth, sourceHeight));
           const input = tensorForRegion(decoded.bitmap, region);
           if (!input) {
             self.postMessage({ id, ...boundedError("worker_unsupported") });
@@ -898,6 +933,7 @@ self.addEventListener("message", async (event) => {
         }
         if (decoded.picture) {
           for (const view of PICTURE_SCAN.views) {
+            reportProgress(id, "picture-view", PICTURE_SCAN.views.indexOf(view), PICTURE_SCAN.views.length, viewProgressRect(decoded.picture.rect, view, sourceWidth, sourceHeight));
             const input = tensorForView(decoded.bitmap, decoded.picture.rect, view);
             if (!input) continue;
             const score = await inferScore(activeSession, input);

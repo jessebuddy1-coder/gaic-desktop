@@ -367,6 +367,7 @@
         guidance: "The file was not analyzed and did not use a free check.", countsTowardLimit: false });
       return false;
     }
+    scanReleasePreviews();
     pickedFile = file;
     pickedKind = sourceKind === "screen"
       ? "screen"
@@ -699,6 +700,7 @@
       file.aicheckInputContext === "device-capture-derived-jpeg"
     ));
     const buf = new Uint8Array(await file.arrayBuffer());
+    scanStage("metadata");
     const dims = imageDimensions(buf);
     const geometryError = imageGeometryError(dims);
     if (geometryError) {
@@ -733,6 +735,7 @@
       // manifest, signature and asset binding locally. Its remote-manifest
       // fetch is disabled in c2pa-verifier.mjs, so a file cannot make this
       // check contact an address embedded inside it.
+      scanStage("credentials");
       const checked = await window.C2PAVerifier.verify(file);
       provenance = checked && typeof checked.status === "string"
         ? checked
@@ -749,6 +752,7 @@
         typeof window.ContainerProvenance.readContainerStructure === "function" &&
         window.ProvenanceVerdict &&
         typeof window.ProvenanceVerdict.gradeEncoderStructure === "function") {
+      scanStage("structure");
       try {
         const structure = window.ContainerProvenance.readContainerStructure(buf, {
           xmpText: meta.metaText || "",
@@ -838,7 +842,7 @@
     // On-device AI MODEL (ONNX). Its softmax output is a model score, not a
     // calibrated probability. It never establishes authorship.
     if (window.OnnxDetector) {
-      const m = await window.OnnxDetector.detect(file);
+      const m = await window.OnnxDetector.detect(file, scanDetectOptions());
       if (m && Number.isFinite(m.aiLikelihood)) {
         rawModelScore = Math.max(0, Math.min(100, m.aiLikelihood * 100));
         score = Math.floor(rawModelScore + Number.EPSILON);
@@ -944,6 +948,7 @@
     // and the model can never produce a clearing verdict. A low model score
     // never becomes "authentic"; the current model has no validated clearing
     // band. See test/provenance-verdict.mjs for the enforced invariants.
+    scanStage("weigh");
     let evidence = null;
     if (window.ProvenanceVerdict &&
         typeof window.ProvenanceVerdict.assessImageEvidence === "function") {
@@ -1012,6 +1017,7 @@
   }
 
   function showProgress(text, fraction) {
+    if (scanPanelProgress(fraction)) return;
     const wrap = $("scan-progress"), bar = $("scan-progress-bar"),
       track = $("scan-progress-track"), label = $("scan-progress-text");
     if (!wrap) return;
@@ -1209,12 +1215,14 @@
 
   async function analyzeVideo(file) {
     showProgress("Checking local Content Credentials…", 0);
+    scanStage("credentials");
     const provenance = await verifyVideoProvenance(file);
     const provenanceEvidence = videoProvenanceEvidence(provenance);
     const url = URL.createObjectURL(file);
     const video = document.createElement("video");
     video.muted = true; video.playsInline = true; video.preload = "auto";
     try {
+      scanStage("video-open");
       const loaded = await new Promise((resolve) => {
         const timer = setTimeout(() => resolve(false), 15000);
         video.onloadedmetadata = () => { clearTimeout(timer); resolve(true); };
@@ -1258,6 +1266,7 @@
       const step = windowSeconds / total;
       for (let i = 0; i < total; i++) {
         showProgress("Analyzing frame " + (i + 1) + " of " + total + "…", i / total);
+        scanStage("frame", { index: i, total });
         let pct = null;
         let note = "seek not confirmed";
         // Try the evenly spaced moment first, then two nearby moments within
@@ -1270,9 +1279,10 @@
           if (!frame) { note = "frame unavailable"; continue; }
           if (frameLooksBlank(cv)) { note = "blank frame skipped"; continue; }
           note = "no model read";
+          scanFrame(frame, i, total);
           if (window.OnnxDetector) {
             try {
-              const m = await window.OnnxDetector.detect(frame);
+              const m = await window.OnnxDetector.detect(frame, scanDetectOptions());
               if (m && Number.isFinite(m.aiLikelihood)) {
                 pct = Math.max(0, Math.min(100, m.aiLikelihood * 100));
                 note = Math.floor(pct + Number.EPSILON) + "/100 model signal";
@@ -1285,6 +1295,7 @@
         frameNotes.push(note);
         showProgress("Analyzed frame " + (i + 1) + " of " + total, (i + 1) / total);
       }
+      scanStage("weigh");
       const valid = frameScores.filter((s) => Number.isFinite(s));
       if (!valid.length) {
         if (["trusted", "valid", "invalid"].includes(provenance.status)) {
@@ -1497,14 +1508,17 @@
     let previous = null;
     for (let i = 0; i < total; i++) {
       showProgress("Analyzing frame " + (i + 1) + " of " + total + "…", i / total);
+      scanStage("frame", { index: i, total });
+      scanFrame(frames[i], i, total);
       let pct = null, note = "no model read";
       const fingerprint = frames[i] && frames[i].aicheckFingerprint;
       if (previous && Number.isFinite(previous.pct) && sameFrame(previous.fingerprint, fingerprint)) {
         pct = previous.pct;
+        scanStage("frame", { index: i, total, from: previous.index });
         note = Math.floor(pct + Number.EPSILON) + "/100 model signal (unchanged from frame " + previous.index + ")";
       } else if (window.OnnxDetector) {
         try {
-          const m = await window.OnnxDetector.detect(frames[i]);
+          const m = await window.OnnxDetector.detect(frames[i], scanDetectOptions());
           if (m && Number.isFinite(m.aiLikelihood)) {
             pct = Math.max(0, Math.min(100, m.aiLikelihood * 100));
             note = Math.floor(pct + Number.EPSILON) + "/100 model signal" +
@@ -1516,6 +1530,7 @@
       scores.push(pct); notes.push(note);
       showProgress("Analyzed frame " + (i + 1) + " of " + total, (i + 1) / total);
     }
+    scanStage("weigh");
     const valid = scores.filter((s) => Number.isFinite(s));
     if (!valid.length) {
       return { kind: "error", score: null, verdict: "Screen frames couldn't be scored",
@@ -1566,7 +1581,7 @@
         }
       }
       analyticsTrack("check_started", "screen");
-      setAnalyzing(true, "media");
+      setAnalyzing(true, "screen");
       analyzingSince = Date.now();
       await paintGate();
       const out = await analyzeScreenFrames(frames);
@@ -3127,36 +3142,43 @@
     }
   }
 
-  // ---------- analyzing state (staged on-device scan animation) ----------
-  // A deliberate beat between "Check" and the result: the panel plays a scan
-  // animation with staged narration and a progress sweep so the check reads as
-  // a thorough pass rather than an instant verdict. Web, desktop (Electron),
-  // iOS, and Android all share this exact code path. The floor is purely
-  // visual and honest — narration only names checks that actually run — and
-  // collapses to a blink when the user prefers reduced motion.
-  const ANALYZE_STAGES = {
-    media: [
-      "Reading the file…",
-      "Checking for signs of AI…",
-      "Checking the file history…",
-      "Looking for signed creation history…",
-      "Preparing your result…",
-    ],
-    text: [
-      "Reading the text…",
-      "Checking for common AI-style patterns…",
-      "Preparing your result…",
-    ],
+  // ---------- analyzing state: the on-device scan viewfinder ----------
+  // A deliberate beat between "Check" and the result. The panel shows the
+  // person's own picture, video frame, or text in a small viewfinder and
+  // narrates the checks as they actually run: every stage is a real pipeline
+  // event, and every lock-on box is a view the model is really reading. Nothing
+  // is named that does not run for this kind of input. It is all transient UI
+  // state: no preview URL, rectangle, or stage ever enters a result,
+  // lastResult, or the shared or read-aloud text. Web, desktop (Electron), iOS,
+  // and Android share this exact code path. The minimum on-screen time is
+  // purely visual and collapses to a blink when the user prefers reduced motion.
+  const SCAN_KINDS = ["image", "video", "screen", "text", "media"];
+  const SCAN_DWELL_MS = 420;       // minimum time each stage stays readable
+  const SCAN_SETTLE_MAX_MS = 900;  // longest the result waits for queued stages
+  const SCAN_MODEL_SLOW_MS = 450;  // name the model load only when it is slow
+  // Rough share of an image check each stage marks, for the progress bar. The
+  // model's own views fill the span between them.
+  const SCAN_STAGE_AT = Object.freeze({
+    metadata: 0.04, credentials: 0.08, structure: 0.12, "model-load": 0.14, weigh: 0.97,
+  });
+  const scan = {
+    active: false, kind: "media", queue: null, urls: new Set(), marks: null, lock: null,
+    views: { done: 0, total: 0 }, frame: { index: 0, total: 0 }, pct: 0,
+    modelReady: false, modelTimer: 0, swapFlip: false, onResize: null,
   };
-  let analyzeStageTimer = 0;
   let analyzeTargetMs = 0;
   function prefersReducedMotion() {
     try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (_) { return false; }
   }
   function setAnalyzeProgress(pct) {
     const bar = $("analyzing-progress-bar");
+    const value = Math.max(0, Math.min(100, pct));
     // scaleX, not width: avoid layout work while the on-device worker runs.
-    if (bar) bar.style.transform = "scaleX(" + Math.max(0, Math.min(100, pct)) / 100 + ")";
+    if (bar) bar.style.transform = "scaleX(" + value / 100 + ")";
+    const track = $("analyzing-progress");
+    if (track && track.getAttribute("role") === "progressbar") {
+      track.setAttribute("aria-valuenow", String(Math.round(value)));
+    }
   }
   // A real analysis does not take the same time twice. Vary the floor per run
   // so the scan reads as work rather than a fixed canned pause.
@@ -3179,47 +3201,477 @@
       setTimeout(finish, 250); // never stall a check on a hidden tab
     });
   }
+
+  // Stages arrive as fast as the pipeline runs (metadata takes milliseconds),
+  // so each one stays up for a minimum dwell and they appear in the order they
+  // happened. Consecutive updates of one stage ("region 3", "region 4", …)
+  // replace each other instead of queueing, so the words never fall far
+  // behind the real work. render(stage, inPlace) paints a stage.
+  function createStageQueue(render, options) {
+    const opts = options || {};
+    const dwell = Number.isFinite(opts.dwell) ? Math.max(0, opts.dwell) : SCAN_DWELL_MS;
+    const now = opts.now || (() => Date.now());
+    const later = opts.setTimer || ((fn, ms) => setTimeout(fn, ms));
+    const cancel = opts.clearTimer || ((id) => clearTimeout(id));
+    const pending = [];
+    const waiters = [];
+    let current = null, shownAt = 0, timer = 0;
+    function pump() {
+      timer = 0;
+      const wait = current ? dwell - (now() - shownAt) : 0;
+      if (wait > 0) { timer = later(pump, wait); return; }
+      if (!pending.length) {
+        while (waiters.length) waiters.shift()();
+        return;
+      }
+      current = pending.shift();
+      shownAt = now();
+      render(current, false);
+      timer = later(pump, dwell);
+    }
+    return {
+      push(stage) {
+        if (!stage || !stage.id) return;
+        const last = pending.length ? pending[pending.length - 1] : null;
+        if (last && last.id === stage.id) {
+          pending[pending.length - 1] = Object.assign({}, stage, { say: stage.say || last.say });
+          return;
+        }
+        if (!last && current && current.id === stage.id) {
+          // Same stage, newer detail: update in place and restart its dwell
+          // so the latest detail stays readable before the next stage.
+          current = stage;
+          shownAt = now();
+          render(stage, true);
+          if (!timer) timer = later(pump, dwell);
+          return;
+        }
+        pending.push(stage);
+        if (!timer) pump();
+      },
+      // Resolves once every queued stage has been shown for its dwell.
+      idle() {
+        if (!pending.length && !timer) return Promise.resolve();
+        return new Promise((resolve) => waiters.push(resolve));
+      },
+      clear() {
+        if (timer) cancel(timer);
+        timer = 0;
+        pending.length = 0;
+        current = null;
+        while (waiters.length) waiters.shift()();
+      },
+      get size() { return pending.length; },
+      get current() { return current; },
+      // The stage that will be showing once the queue drains.
+      get last() { return pending.length ? pending[pending.length - 1] : current; },
+    };
+  }
+
+  // What each stage says. `text` is shown; `say` (major steps only) goes to
+  // the polite live region, so a screen reader hears a handful of steps rather
+  // than every region tick.
+  function scanCopy(id, d, kind) {
+    const n = (value) => Number(value || 0).toLocaleString();
+    const of = (i, total) => (i + 1) + " of " + total;
+    const frames = kind === "screen" ? "Checking" : "Sampling";
+    switch (id) {
+      case "read":
+        return { text: kind === "video" ? "Reading the video" : kind === "screen" ? "Checking the captured frames" : "Reading the file" };
+      case "metadata": return { text: "Reading the metadata" };
+      case "credentials": return { text: "Checking Content Credentials", say: "Checking Content Credentials" };
+      case "structure": return { text: "Checking the file structure" };
+      case "model-load": return { text: "Loading the on-device image model", say: "Loading the on-device image model" };
+      case "region":
+        return { text: "Scanning region " + of(d.index, d.total), say: d.index === 0 ? "Scanning the image in " + d.total + " regions" : "" };
+      case "picture": {
+        const text = kind === "screen" ? "Picture located on screen" : "Picture located inside the screenshot";
+        return { text, say: text };
+      }
+      case "picture-view":
+        return { text: "Reading the picture · view " + of(d.index, d.total), say: d.index === 0 ? "Reading the located picture" : "" };
+      case "video-open": return { text: "Opening the video" };
+      case "frame":
+        if (d.picture) return { text: "Frame " + of(d.index, d.total) + " · picture located", say: "Picture located on screen" };
+        if (d.from) return { text: "Frame " + of(d.index, d.total) + " unchanged · reusing frame " + d.from };
+        return { text: frames + " frame " + of(d.index, d.total), say: d.index === 0 && !d.quiet ? frames + " " + d.total + " frames" : "" };
+      case "text-read":
+        return d.words ? { text: "Reading " + n(d.words) + " word" + (d.words === 1 ? "" : "s"), say: "Reading " + n(d.words) + " words" } : { text: "Reading the text" };
+      case "text-passages":
+        return { text: d.count === 1 ? "Scored as one passage" : "Split into " + n(d.count) + " passages" };
+      case "text-features": return { text: "Measured " + n(d.count) + " writing features per passage" };
+      case "text-vocab": return { text: "Compared word choice with a " + n(d.count) + "-term vocabulary" };
+      case "text-legacy": return { text: "Checked sentence rhythm and phrasing" };
+      case "weigh": {
+        const text = kind === "text" ? "Weighing writing patterns"
+          : kind === "video" || kind === "screen" ? "Weighing the sampled frames" : "Weighing the evidence";
+        return { text, say: text };
+      }
+      case "done": return { text: "Done — preparing the result" };
+      default: return null;
+    }
+  }
+  function renderScanStage(stage, inPlace) {
+    const el = $("analyzing-stage"), text = $("analyzing-stage-text"), sr = $("analyzing-stage-sr");
+    const panel = $("analyzing");
+    if (panel) panel.setAttribute("data-stage", stage.id);
+    if (!el) return;
+    if (stage.say && sr && sr.textContent !== stage.say) sr.textContent = stage.say;
+    if (!text) { el.textContent = stage.text; return; }
+    text.textContent = stage.text;
+    if (inPlace) return;
+    // A new stage slides in at once, so it stays legible for its whole dwell.
+    // Alternating two identical animations restarts it without a reflow.
+    scan.swapFlip = !scan.swapFlip;
+    text.classList.remove(scan.swapFlip ? "stage-in-b" : "stage-in-a");
+    text.classList.add(scan.swapFlip ? "stage-in-a" : "stage-in-b");
+  }
+  // Pipeline hook: queue a real stage. A UI failure can never fail a check.
+  function scanStage(id, detail) {
+    try {
+      if (!scan.active || !scan.queue) return;
+      const d = detail || {};
+      const copy = scanCopy(id, d, scan.kind);
+      if (!copy) return;
+      scan.queue.push({ id, text: copy.text, say: copy.say || "" });
+      if ((scan.kind === "image" || scan.kind === "media") && SCAN_STAGE_AT[id]) scanProgress(SCAN_STAGE_AT[id]);
+    } catch (_) {}
+  }
+  // One monotonic bar for the whole check: 8% at the start, 88% when every
+  // real step has run, 100% only with the result.
+  function scanProgress(fraction) {
+    const pct = 8 + 80 * Math.max(0, Math.min(1, Number(fraction) || 0));
+    if (pct <= scan.pct) return;
+    scan.pct = pct;
+    setAnalyzeProgress(pct);
+  }
+  // Video and screen already measure progress in frames (showProgress). While
+  // the panel is open it owns the only visible bar, so the frame bar stays
+  // hidden and its value flows here instead.
+  function scanPanelProgress(fraction) {
+    if (!scan.active) return false;
+    const wrap = $("scan-progress");
+    if (wrap) wrap.hidden = true;
+    scanProgress(fraction);
+    return true;
+  }
+
+  // ----- viewfinder layers -----
+  function scanElement(tag, className) {
+    const node = document.createElement(tag);
+    node.className = className;
+    return node;
+  }
+  function scanPlace(node, rect) {
+    node.style.left = (rect.x * 100) + "%";
+    node.style.top = (rect.y * 100) + "%";
+    node.style.width = (rect.width * 100) + "%";
+    node.style.height = (rect.height * 100) + "%";
+  }
+  function scanRevoke(url) {
+    if (!url || !scan.urls.has(url)) return;
+    scan.urls.delete(url);
+    try { URL.revokeObjectURL(url); } catch (_) {}
+  }
+  // Revoke every preview URL. Idempotent: safe on teardown and on a new pick.
+  function scanReleasePreviews() {
+    for (const url of Array.from(scan.urls)) scanRevoke(url);
+  }
+  // Fit a picture box inside the viewfinder the way object-fit: contain would,
+  // as percentages, so region boxes can be placed in the picture's own
+  // coordinates. Recomputed only when the viewport changes size.
+  function scanFit(media) {
+    const view = media && media.parentNode;
+    const iw = Number(media && media.dataset.w), ih = Number(media && media.dataset.h);
+    if (!view || !iw || !ih) return;
+    const fw = view.clientWidth, fh = view.clientHeight;
+    if (!fw || !fh) return;
+    const pad = 10;
+    const s = Math.min((fw - 2 * pad) / iw, (fh - 2 * pad) / ih);
+    if (!(s > 0)) return;
+    const w = (iw * s) / fw * 100, h = (ih * s) / fh * 100;
+    scanPlace(media, { x: (100 - w) / 200, y: (100 - h) / 200, width: w / 100, height: h / 100 });
+  }
+  function scanRefit() {
+    const view = $("analyzing-view");
+    if (!view) return;
+    for (const media of view.querySelectorAll(".analyzing-media[data-w]")) scanFit(media);
+  }
+  // Show one picture (the chosen photo, or a sampled video or screen frame) in
+  // the viewfinder. It starts desaturated and develops to full colour behind
+  // a sweeping beam; an earlier frame fades out underneath the new one.
+  function scanShowPicture(file) {
+    const view = $("analyzing-view"), panel = $("analyzing");
+    if (!view || !panel || !file) return;
+    let url = "";
+    try { url = URL.createObjectURL(file); } catch (_) { return; }
+    scan.urls.add(url);
+    const media = scanElement("div", "analyzing-media");
+    const shot = scanElement("img", "analyzing-shot");
+    const veil = scanElement("div", "analyzing-veil");
+    const mono = scanElement("img", "analyzing-shot");
+    const marks = scanElement("div", "analyzing-marks");
+    shot.alt = ""; mono.alt = "";
+    shot.decoding = "async"; mono.decoding = "async";
+    veil.appendChild(mono);
+    media.appendChild(shot);
+    media.appendChild(veil);
+    media.appendChild(scanElement("span", "analyzing-beam"));
+    media.appendChild(marks);
+    view.appendChild(media);
+    panel.classList.add("has-view");
+    scan.marks = marks;
+    scan.lock = null;
+    const retire = (old, delay) => {
+      old.classList.add("is-leaving");
+      setTimeout(() => {
+        if (old.parentNode) old.parentNode.removeChild(old);
+        scanRevoke(old.dataset.url);
+      }, delay);
+    };
+    shot.onload = () => {
+      if (!media.parentNode) return;
+      // A newer frame already on show wins; this one arrived too late.
+      for (let next = media.nextElementSibling; next; next = next.nextElementSibling) {
+        if (next.classList.contains("is-ready")) { retire(media, 0); return; }
+      }
+      media.dataset.w = String(shot.naturalWidth || 0);
+      media.dataset.h = String(shot.naturalHeight || 0);
+      scanFit(media);
+      media.classList.add("is-ready");
+      for (let old = media.previousElementSibling; old; old = old.previousElementSibling) {
+        if (!old.classList.contains("is-leaving")) retire(old, 320);
+      }
+    };
+    shot.onerror = () => {
+      // Undisplayable here: keep the boxes on a plain full-frame stage.
+      scanRevoke(url);
+      if (shot.parentNode) shot.parentNode.removeChild(shot);
+      if (veil.parentNode) veil.parentNode.removeChild(veil);
+      media.classList.add("is-ready", "is-plain");
+    };
+    media.dataset.url = url;
+    shot.src = url;
+    mono.src = url;
+  }
+  // Snap a bracket box onto the view the model is reading. Its geometry is set
+  // once; it animates in and out with transform and opacity only.
+  function scanLock(rect) {
+    if (!scan.marks || !rect) return;
+    const box = scanElement("span", "analyzing-lock");
+    scanPlace(box, rect);
+    scan.marks.appendChild(box);
+    const previous = scan.lock;
+    scan.lock = box;
+    if (previous && previous.parentNode) {
+      previous.classList.add("is-done");
+      setTimeout(() => { if (previous.parentNode) previous.parentNode.removeChild(previous); }, 600);
+    }
+  }
+  function scanPictureBox(rect) {
+    if (!scan.marks || !rect) return;
+    const box = scanElement("span", "analyzing-found");
+    const tag = scanElement("span", "analyzing-found-tag");
+    tag.textContent = "picture";
+    box.appendChild(tag);
+    scanPlace(box, rect);
+    scan.marks.appendChild(box);
+  }
+  // Text: a clipped excerpt of the person's own text with a highlighter
+  // reading down it. It never leaves this panel.
+  function scanPreviewText(value) {
+    try {
+      if (!scan.active) return;
+      const view = $("analyzing-view"), panel = $("analyzing");
+      const raw = String(value || "");
+      const words = normalizeTextForAnalysis(raw).trim().split(/\s+/).filter(Boolean).length;
+      const excerpt = raw.slice(0, 900).replace(/\s+/g, " ").trim().slice(0, 520);
+      if (view && panel && excerpt) {
+        const wrap = scanElement("div", "analyzing-text");
+        const body = scanElement("p", "analyzing-text-body");
+        const mark = scanElement("span", "analyzing-text-mark");
+        body.textContent = excerpt;
+        mark.appendChild(document.createElement("span"));
+        wrap.appendChild(body);
+        wrap.appendChild(mark);
+        view.appendChild(wrap);
+        panel.classList.add("has-view");
+      }
+      scanStage("text-read", { words });
+      scanProgress(0.1);
+    } catch (_) {}
+  }
+  // The text engine is synchronous and finishes in milliseconds, so its real
+  // numbers are replayed while the panel is up: how many passages it scored,
+  // what it measured, and the vocabulary it compared against.
+  function scanTextReplay(out, value) {
+    try {
+      if (!scan.active || !out || out.kind !== "text" || !Number.isFinite(out.score)) return;
+      const engine = global.AICheckTextEngine;
+      if (out.textModel && engine && engine.model && typeof engine.chunkText === "function") {
+        const passages = engine.chunkText(engine.normalize(value)).length;
+        if (passages) scanStage("text-passages", { count: passages });
+        if (engine.DENSE_NAMES && engine.DENSE_NAMES.length) scanStage("text-features", { count: engine.DENSE_NAMES.length });
+        if (engine.model.lexicon && engine.model.lexicon.size) scanStage("text-vocab", { count: engine.model.lexicon.size });
+      } else {
+        scanStage("text-legacy");
+      }
+      scanStage("weigh");
+      scanProgress(1);
+    } catch (_) {}
+  }
+  // Video and screen: show the frame being analyzed. The frame already exists
+  // as a PNG File for the model, so nothing is decoded a second time.
+  function scanFrame(frame, index, total) {
+    try {
+      if (!scan.active) return;
+      scan.frame = { index, total };
+      scan.views = { done: 0, total: 0 };
+      scanShowPicture(frame);
+      scanProgress(index / Math.max(1, total));
+    } catch (_) {}
+  }
+  // Options for OnnxDetector.detect: follow the model through its views.
+  function scanDetectOptions() {
+    try {
+      if (scan.active) {
+        scan.modelReady = false;
+        clearTimeout(scan.modelTimer);
+        scan.modelTimer = setTimeout(() => {
+          if (scan.active && !scan.modelReady) scanStage("model-load");
+        }, SCAN_MODEL_SLOW_MS);
+      }
+    } catch (_) {}
+    return { onProgress: scanModelProgress };
+  }
+  function scanModelProgress(p) {
+    try {
+      if (!scan.active || !p) return;
+      const stills = scan.kind === "image" || scan.kind === "media";
+      if (p.phase === "model-ready") {
+        scan.modelReady = true;
+        clearTimeout(scan.modelTimer);
+        // Frames have no per-region words, so once a slow model load ends the
+        // frame being read takes the stage back.
+        const latest = scan.queue && scan.queue.last;
+        if (!stills && scan.frame.total && latest && latest.id === "model-load") {
+          scanStage("frame", { index: scan.frame.index, total: scan.frame.total, quiet: true });
+        }
+        return;
+      }
+      if (p.phase === "decoded") {
+        scan.views = { done: 0, total: p.total };
+        return;
+      }
+      if (p.phase === "picture") {
+        scan.views.total += p.total;
+        scanPictureBox(p.rect);
+        if (stills) scanStage("picture");
+        else if (scan.kind === "screen") scanStage("frame", { index: scan.frame.index, total: scan.frame.total, picture: true });
+        return;
+      }
+      if (p.phase !== "region" && p.phase !== "picture-view") return;
+      scan.modelReady = true;
+      clearTimeout(scan.modelTimer);
+      scanLock(p.rect);
+      scan.views.done += 1;
+      if (stills) scanStage(p.phase, { index: p.index, total: p.total });
+      const within = scan.views.total ? Math.min(1, scan.views.done / scan.views.total) : 0;
+      if (stills) scanProgress(0.16 + 0.78 * within);
+      else scanProgress((scan.frame.index + within) / Math.max(1, scan.frame.total));
+    } catch (_) {}
+  }
+
+  function scanTeardown() {
+    scan.active = false;
+    if (scan.queue) scan.queue.clear();
+    scan.queue = null;
+    clearTimeout(scan.modelTimer);
+    scan.modelTimer = 0;
+    scan.marks = null; scan.lock = null; scan.pct = 0;
+    scan.views = { done: 0, total: 0 };
+    scan.frame = { index: 0, total: 0 };
+    if (scan.onResize) {
+      try { window.removeEventListener("resize", scan.onResize); } catch (_) {}
+      scan.onResize = null;
+    }
+    scanReleasePreviews();
+    const view = $("analyzing-view");
+    if (view) while (view.firstChild) view.removeChild(view.firstChild);
+    const panel = $("analyzing");
+    if (panel) {
+      panel.classList.remove("has-view", "is-resolving");
+      panel.removeAttribute("data-kind");
+      panel.removeAttribute("data-stage");
+    }
+    // Hand the progressbar role back to the frame bar.
+    const track = $("analyzing-progress"), frameTrack = $("scan-progress-track");
+    if (track) {
+      track.removeAttribute("role");
+      track.removeAttribute("aria-label");
+      track.removeAttribute("aria-valuemin");
+      track.removeAttribute("aria-valuemax");
+      track.removeAttribute("aria-valuenow");
+      track.setAttribute("aria-hidden", "true");
+    }
+    if (frameTrack) frameTrack.setAttribute("role", "progressbar");
+  }
   function setAnalyzing(on, kind) {
     const el = $("analyzing");
     if (el) el.hidden = !on;
-    if (analyzeStageTimer) { clearInterval(analyzeStageTimer); analyzeStageTimer = 0; }
-    const stageEl = $("analyzing-stage");
+    scanTeardown();
+    const stageEl = $("analyzing-stage"), stageText = $("analyzing-stage-text"), stageSr = $("analyzing-stage-sr");
     if (on) {
       const res = $("result");
       if (res) res.classList.remove("show");
       announce("Analyzing on this device…", false);
-      const stages = ANALYZE_STAGES[kind] || ANALYZE_STAGES.media;
       const reduced = prefersReducedMotion();
-      let idx = 0;
-      analyzeTargetMs = analyzeDurationFor(kind);
-      if (stageEl) stageEl.textContent = stages[0];
-      setAnalyzeProgress(reduced ? 90 : 8);
+      scan.kind = SCAN_KINDS.indexOf(kind) >= 0 ? kind : "media";
+      scan.active = true;
+      analyzeTargetMs = analyzeDurationFor(scan.kind);
+      if (el) el.setAttribute("data-kind", scan.kind);
+      // One visible bar, and it is the one exposed as the progressbar.
+      const track = $("analyzing-progress"), frameTrack = $("scan-progress-track"), frameWrap = $("scan-progress");
+      if (frameWrap) frameWrap.hidden = true;
+      if (frameTrack) frameTrack.removeAttribute("role");
+      if (track) {
+        track.removeAttribute("aria-hidden");
+        track.setAttribute("role", "progressbar");
+        track.setAttribute("aria-label", "Check progress");
+        track.setAttribute("aria-valuemin", "0");
+        track.setAttribute("aria-valuemax", "100");
+      }
+      setAnalyzeProgress(8);
+      scan.pct = 8;
+      scan.queue = createStageQueue(renderScanStage, { dwell: SCAN_DWELL_MS });
+      scanStage(scan.kind === "text" ? "text-read" : "read", {});
+      if (scan.kind === "image" && pickedFile) {
+        try { scanShowPicture(pickedFile); } catch (_) {}
+      }
+      scan.onResize = () => { try { scanRefit(); } catch (_) {} };
+      try { window.addEventListener("resize", scan.onResize); } catch (_) {}
       // Bring the theater into view — on phones the card top sits off-screen
       // when the check starts from the quick-scan button.
       if (el && !reduced && el.scrollIntoView) {
         try { el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
       }
-      if (!reduced) {
-        // Pace the narration to this run's randomized length.
-        const stageEvery = Math.max(380, Math.round(analyzeTargetMs / stages.length));
-        analyzeStageTimer = setInterval(() => {
-          idx += 1;
-          if (idx >= stages.length) { clearInterval(analyzeStageTimer); analyzeStageTimer = 0; return; }
-          if (stageEl) {
-            stageEl.classList.add("stage-swap");
-            setTimeout(() => {
-              stageEl.textContent = stages[idx];
-              stageEl.classList.remove("stage-swap");
-            }, 160);
-          }
-          // Ease toward ~88% and hold; 100% lands only with the real result.
-          setAnalyzeProgress(Math.min(88, Math.round(8 + (idx * 80) / Math.max(1, stages.length - 1))));
-        }, stageEvery);
-      }
     } else {
-      if (stageEl) { stageEl.textContent = ""; stageEl.classList.remove("stage-swap"); }
+      if (stageText) {
+        stageText.textContent = "";
+        stageText.classList.remove("stage-in-a", "stage-in-b");
+      }
+      if (stageSr) stageSr.textContent = "";
+      if (stageEl && !stageText) stageEl.textContent = "";
       setAnalyzeProgress(0);
     }
+  }
+  // Wait (bounded) until the queued real stages have each had their dwell.
+  function scanStagesSettled(maxMs) {
+    if (!scan.active || !scan.queue) return Promise.resolve();
+    return Promise.race([
+      scan.queue.idle(),
+      new Promise((resolve) => setTimeout(resolve, Math.max(0, maxMs))),
+    ]);
   }
   async function finishAnalyzing(since, kind) {
     if (!since) return;
@@ -3228,9 +3680,14 @@
     const minShow = analyzeTargetMs || (reduced ? 350 : kind === "text" ? 1300 : 2600);
     const left = minShow - (Date.now() - since);
     if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
+    if (!reduced) await scanStagesSettled(SCAN_SETTLE_MAX_MS);
     setAnalyzeProgress(100);
-    const stageEl = $("analyzing-stage");
-    if (stageEl) stageEl.textContent = "Done — preparing the result";
+    // The resolve beat (under 400 ms): the brackets converge and the beam
+    // flashes out, then the unchanged result card takes over.
+    if (scan.queue) scan.queue.clear();
+    renderScanStage({ id: "done", text: scanCopy("done", {}, scan.kind).text, say: "" }, true);
+    const panel = $("analyzing");
+    if (panel && scan.active) panel.classList.add("is-resolving");
     if (!reduced) await new Promise((resolve) => setTimeout(resolve, 320));
     setAnalyzing(false);
   }
@@ -3277,14 +3734,16 @@
         checkStarted = true;
         analyticsTrack("check_started", analyticsMode);
         setAnalyzing(true, "text");
+        scanPreviewText(($("text-input") || {}).value);
         analyzingSince = Date.now();
         await paintGate();
         const input = $("text-input");
         out = analyzeText((input && input.value) || "");
+        scanTextReplay(out, (input && input.value) || "");
       } else {
         checkStarted = true;
         analyticsTrack("check_started", analyticsMode);
-        setAnalyzing(true, "media");
+        setAnalyzing(true, isVideoFile(pickedFile) ? "video" : "image");
         analyzingSince = Date.now();
         if (!isVideoFile(pickedFile)) {
           // Capture this check's one-time consent and verified entitlement

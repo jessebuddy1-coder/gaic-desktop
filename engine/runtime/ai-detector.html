@@ -176,14 +176,16 @@
 
       <div class="analyzing" id="analyzing" hidden>
         <div class="analyzing-frame" aria-hidden="true">
+          <div class="analyzing-view" id="analyzing-view"></div>
           <span class="analyzing-corner tl"></span><span class="analyzing-corner tr"></span>
           <span class="analyzing-corner bl"></span><span class="analyzing-corner br"></span>
           <span class="analyzing-grid"></span>
           <span class="analyzing-scanline"></span>
+          <span class="analyzing-flash"></span>
         </div>
         <p class="analyzing-label">Analyzing<span class="analyzing-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>
-        <p class="analyzing-stage" id="analyzing-stage" aria-live="polite"></p>
-        <div class="analyzing-progress" aria-hidden="true"><span id="analyzing-progress-bar"></span></div>
+        <p class="analyzing-stage" id="analyzing-stage" aria-live="polite"><span class="analyzing-stage-text" id="analyzing-stage-text" aria-hidden="true"></span><span class="analyzing-stage-sr" id="analyzing-stage-sr"></span></p>
+        <div class="analyzing-progress" id="analyzing-progress" aria-hidden="true"><span id="analyzing-progress-bar"></span></div>
         <p class="hint analyzing-sub">Your private on-device result comes first. An optional web Pro cloud check starts only if you selected it.</p>
       </div>
 
