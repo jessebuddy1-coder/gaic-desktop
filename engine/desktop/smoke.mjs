@@ -163,6 +163,48 @@ async function waitForAppPage(child) {
   throw new Error(`no aicheck-app: page within 120 s; targets: ${JSON.stringify(targets)}`);
 }
 
+// Everything that can explain a page that does not answer: the target list,
+// the browser-level view of it, a detach-free attach through the browser
+// session (which also releases a page waiting for a debugger), and on Windows
+// the visible top-level windows (a dialog would show up here).
+async function diagnose(target) {
+  try { log("targets now:", JSON.stringify((await devToolsJson("/json/list")).map((t) => [t.type, t.url, t.title]))); }
+  catch (e) { log("target list failed:", e.message); }
+  let browser;
+  try {
+    const version = await devToolsJson("/json/version");
+    browser = new Page(version.webSocketDebuggerUrl);
+    await browser.open();
+    const { targetInfos } = await browser.send("Target.getTargets", {}, 15_000);
+    log("browser sees:", JSON.stringify(targetInfos.map((t) => [t.type, t.url, t.attached])));
+    const { sessionId } = await browser.send("Target.attachToTarget", { targetId: target.id, flatten: true }, 15_000);
+    const viaSession = (method, params = {}) => new Promise((resolve, reject) => {
+      const id = browser.nextId++;
+      const timer = setTimeout(() => { browser.pending.delete(id); reject(new Error(`${method} (session) got no answer`)); }, 20_000);
+      browser.pending.set(id, { resolve, reject, timer, method });
+      browser.ws.send(JSON.stringify({ id, sessionId, method, params }));
+    });
+    await viaSession("Runtime.runIfWaitingForDebugger").then(() => log("runIfWaitingForDebugger answered"), (e) => log(e.message));
+    await viaSession("Runtime.evaluate", { expression: "document.readyState + ' ' + location.href", returnByValue: true })
+      .then((r) => log("page via browser session:", JSON.stringify(r.result && r.result.value)), (e) => log(e.message));
+  } catch (e) {
+    log("browser-level diagnosis failed:", e.message);
+  } finally {
+    if (browser) browser.close();
+  }
+  if (process.platform === "win32") {
+    await new Promise((resolve) => {
+      const ps = spawn("powershell", ["-NoProfile", "-Command",
+        "Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object ProcessName, Id, MainWindowTitle | Format-Table -AutoSize | Out-String -Width 220"],
+        { stdio: ["ignore", "pipe", "pipe"] });
+      let out = "";
+      ps.stdout.on("data", (d) => { out += d; });
+      ps.on("close", () => { log("visible windows:\n" + out.trim()); resolve(); });
+      ps.on("error", () => resolve());
+    });
+  }
+}
+
 async function readResult(page) {
   return page.evaluate(() => {
     const text = (id) => { const el = document.getElementById(id); return el ? el.textContent.trim() : ""; };
@@ -239,8 +281,8 @@ const profile = path.resolve(outDir, "profile");
 fs.rmSync(profile, { recursive: true, force: true });
 const appLogPath = path.join(outDir, "app.log");
 const appLog = fs.createWriteStream(appLogPath);
-const child = spawn(exe, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, ...extraArgs],
-  { stdio: ["ignore", "pipe", "pipe"] });
+const child = spawn(exe, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
+  "--enable-logging=stderr", "--v=0", ...extraArgs], { stdio: ["ignore", "pipe", "pipe"] });
 child.stdout.pipe(appLog); child.stderr.pipe(appLog);
 let page;
 try {
@@ -250,6 +292,17 @@ try {
   log("DevTools up:", report.browser, "targets:", JSON.stringify(report.targets));
   page = new Page(target.webSocketDebuggerUrl);
   await page.open();
+  let answered = false;
+  for (let attempt = 1; attempt <= 6 && !answered; attempt += 1) {
+    try {
+      await page.send("Runtime.evaluate", { expression: "document.readyState", returnByValue: true }, 30_000);
+      answered = true;
+    } catch (e) {
+      log(`page not answering yet (${attempt}/6): ${e.message}`);
+      await diagnose(target);
+    }
+  }
+  if (!answered) throw new Error("the app's page never answered DevTools commands");
   await page.send("Runtime.enable");
   await page.send("Page.enable");
   await page.waitFor(() => document.readyState === "complete" && !!(window.AICheck && window.OnnxDetector), 120_000, "the app to load");
