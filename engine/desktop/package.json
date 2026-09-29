@@ -6,7 +6,7 @@
   "author": "NIRO CORP",
   "description": "Privacy-first GAIC desktop shell with an on-device checker and explicit one-frame screen capture.",
   "gaicRelease": {
-    "publish": false,
+    "publish": true,
     "base": "v2.4.0",
     "baseAssets": {
       "GAIC-Setup-2.4.0-x64.exe": "2727617b8e634c39946402cd5186f0ffbaac0f096a67be55ecef97d2a7e28c97",
