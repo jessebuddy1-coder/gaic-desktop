@@ -3,7 +3,8 @@
    word/phrase lexicon, trained offline on permissively licensed public
    research corpora (see models/GAIC-TEXT-MODEL.md) and evaluated on corpora it
    never saw. Runs entirely on this device: no text leaves it. The output is a
-   pattern signal, not a probability and not proof of authorship. */
+   lean (AI-written or human-written) with a measured confidence level and an
+   estimated AI likelihood; it is evidence, not proof of authorship. */
 (function (global) {
   "use strict";
 

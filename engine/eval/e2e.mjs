@@ -60,7 +60,7 @@ for (const it of items) {
       if (mode === "image") {
         const m = await window.OnnxDetector.detect(file);
         return m ? { aiLikelihood: m.aiLikelihood, strongestRegion: m.strongestRegion, regionScan: m.regionScan,
-          regionScores: m.regionScores } : { error: window.OnnxDetector.lastError };
+          regionScores: m.regionScores, head: m.head || null } : { error: window.OnnxDetector.lastError };
       }
       if (mode === "video") {
         const r = await T.analyzeVideo(file);

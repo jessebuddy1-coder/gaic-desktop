@@ -91,6 +91,29 @@
       " (" + out.confidence + " confidence), with an estimated " + out.score + "% AI likelihood.";
   }
 
+  // Fallback lean when the evidence module is unavailable: pixel only, always
+  // low confidence, and the displayed value stays on the lean's side of 50%.
+  function fallbackLean(probability) {
+    const p = Math.max(0.01, Math.min(0.99, probability));
+    const lean = p >= 0.5 ? "ai" : "real";
+    const shown = Math.round(p * 100) / 100;
+    return { lean, confidence: "low", probabilityAi: lean === "ai" ? Math.max(0.5, shown) : Math.min(0.49, shown) };
+  }
+
+  // The warning bands of the evidence read (95 elevated, 99 high) follow the
+  // decision head's measured confidence levels, so the technical line and the
+  // headline never disagree: AI high reads as the high band, any other AI
+  // lean as the elevated band, and a real lean stays below both.
+  function headBandScore(probability, cuts) {
+    const c = cuts || {};
+    const aiHigh = Number.isFinite(c.aiHigh) ? c.aiHigh : 0.9;
+    const aiMedium = Number.isFinite(c.aiMedium) ? Math.max(0.5, c.aiMedium) : 0.75;
+    const pct = probability * 100;
+    if (probability >= aiHigh) return Math.max(IMAGE_AI_BAND, pct);
+    if (probability >= 0.5 && probability >= aiMedium) return Math.min(IMAGE_AI_BAND - 0.01, Math.max(IMAGE_AI_ELEVATED_BAND, pct));
+    return Math.min(IMAGE_AI_ELEVATED_BAND - 0.01, pct);
+  }
+
   function clampedLogOdds(probability) {
     const q = Math.min(0.995, Math.max(0.005, probability));
     return Math.log(q / (1 - q));
@@ -113,19 +136,16 @@
     const probability = calibrated
       ? 1 / (1 + Math.exp(-medianOf(usable.map((frame) => clampedLogOdds(frame.probability)))))
       : null;
-    const rawScore = calibrated ? probability * 100 : medianOf(usable.map((frame) => frame.pct));
-    const pixel = { available: true, rawScore, probability, scan: "direct-v5",
-      cuts: calibrated ? usable[0].cuts || null : null,
+    const cuts = calibrated ? usable[0].cuts || null : null;
+    const rawScore = calibrated ? headBandScore(probability, cuts) : medianOf(usable.map((frame) => frame.pct));
+    const pixel = { available: true, rawScore, probability, scan: "direct-v5", cuts,
       elevatedBand: IMAGE_AI_ELEVATED_BAND, warningBand: IMAGE_AI_BAND };
     const verdictModule = window.ProvenanceVerdict;
     let lean = null;
     if (verdictModule && typeof verdictModule.decideImageLean === "function") {
       lean = verdictModule.decideImageLean({ provenance: provenance || {}, pixel });
     }
-    if (!lean) {
-      const p = calibrated ? probability : Math.max(0.01, Math.min(0.99, rawScore / 100));
-      lean = { lean: p >= 0.5 ? "ai" : "real", confidence: "low", probabilityAi: p };
-    }
+    if (!lean) lean = fallbackLean(calibrated ? probability : rawScore / 100);
     return { lean: lean.lean, confidence: lean.confidence, aiLikelihood: lean.probabilityAi * 100,
       calibrated, frames: usable.length };
   }
@@ -162,14 +182,18 @@
   // Keep this aligned with the optional cloud endpoint. The local checks also
   // benefit from a sane cap: a giant image can otherwise exhaust mobile canvas
   // memory before the user ever opts into a cloud upload.
-  const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB
+  // Modern phone cameras (48-200 MP) routinely write 10-40 MB photos. The
+  // on-device check accepts up to 50 MB; above the scan's 24 MP working limit
+  // the detector decodes a downscaled copy (onnx-detector.js), so large photos
+  // never need a full-resolution canvas.
+  const MAX_IMAGE_BYTES = 50 * 1024 * 1024; // 50 MB
   // Vercel Functions accept at most a 4.5 MB request body. A raw 3 MiB image
   // expands to about 4 MiB as canonical base64, leaving safe JSON overhead.
   // This cloud-only cap must match the exact health contract and backend. The
   // bundled on-device model continues to accept images up to MAX_IMAGE_BYTES.
   const CLOUD_MAX_IMAGE_BYTES = 3 * 1024 * 1024;
-  const MAX_IMAGE_DIMENSION = 8192;
-  const MAX_IMAGE_PIXELS = 24_000_000;
+  const MAX_IMAGE_DIMENSION = 16384;
+  const MAX_IMAGE_PIXELS = 120_000_000;
   const CLOUD_ANALYSIS_TIMEOUT_MS = 18_000;
 
   function cloudIdempotencyKey() {
@@ -444,7 +468,7 @@
     if (typeof file.size === "number" && file.size > byteCap) {
       switchTab("image");
       showResult({ kind: "error", score: null, verdict: video ? "Video too large" : "Image too large",
-        explain: video ? "Video must be 200MB or smaller." : "Image must be 8MB or smaller.",
+        explain: video ? "Video must be 200MB or smaller." : "Image must be 50MB or smaller.",
         guidance: "The file was not analyzed and did not use a free check.", countsTowardLimit: false });
       return false;
     }
@@ -814,6 +838,10 @@
     // ordinary image bytes happen to contain a substring like "imagen").
     let generatorTextKeys = [];
     let aiTags = !derivedFromHEIF && /\b(midjourney|stable[ -]?diffusion|dall[ -]?e|adobe firefly|generative[ -]?fill|openai|gemini|imagen)\b/i.test(meta.metaText || "");
+    // "gemini" and "imagen" are also ordinary words and names, so a match on
+    // them alone counts for less in the lean.
+    const aiTagAmbiguous = aiTags &&
+      !/\b(midjourney|stable[ -]?diffusion|dall[ -]?e|adobe firefly|generative[ -]?fill|openai)\b/i.test(meta.metaText || "");
 
     let provenance = derivedFromHEIF
       ? { status: "unsupported", sourceClass: "unknown" }
@@ -958,7 +986,7 @@
           const pct = (region) => (Math.round(region.aiLikelihood * 1000) / 10).toFixed(1) + "/100";
           const area = Number(m.pictureArea);
           metricLabel = "Screenshot scan: stronger of two readings";
-          parts.push("Engine v2 diagnostics — " + label + ": " + score + "/100, the higher of two local readings. " +
+          parts.push("Region scan (" + label + "): " + score + "/100, the higher of two local readings. " +
             (picture ? "Detected picture" +
               (Number.isFinite(area) && area > 0 ? " (about " + Math.round(area * 100) + "% of the frame)" : "") +
               ", averaged over " + viewCount + " views at the model's working scale: " + pct(picture) + ". " : "") +
@@ -973,7 +1001,7 @@
             (Math.round(region.aiLikelihood * 1000) / 10).toFixed(1) +
             "/100"
           );
-          parts.push("Engine v2 diagnostics — " + label + ": " + score + "/100 strongest-region model signal, the highest of " +
+          parts.push("Region scan (" + label + "): " + score + "/100 strongest-region model signal, the highest of " +
             imageRegionScores.length + " local views. Region diagnostics: " +
             diagnostics.join(" · ") + ".");
           const context = frameLayoutContext(file, dims, imageRegionScores.length);
@@ -983,7 +1011,7 @@
             rawModelScore < IMAGE_AI_ELEVATED_BAND;
           if (uncalibratedCompositeFrame) scanKind = "composite-v6";
         } else {
-          parts.push("Engine v2 diagnostics — " + label + ": " + score + "/100 model signal.");
+          parts.push("Region scan (" + label + "): " + score + "/100 model signal.");
         }
         parts.push("Model limits: heavy edits, screenshots, recompression, unusual content, and generators newer than its training data can still fool it in either direction.");
       }
@@ -1014,14 +1042,15 @@
     const evidenceInput = {
       provenance,
       container: { hasC2PA, hasExif, hasXMP, derivedFromHEIF },
-      metadata: { generatorTagged: aiTags, generatorParameters: generatorTextKeys.length > 0,
+      metadata: { generatorTagged: aiTags, generatorTagAmbiguous: aiTagAmbiguous && !generatorTextKeys.length,
+        generatorParameters: generatorTextKeys.length > 0,
         exif: derivedFromHEIF ? {} : (meta.exif || {}) },
       encoder: encoderEvidence,
       declarations: containerDeclarations,
       sourceContext,
       pixel: {
         available: rawModelScore != null,
-        rawScore: headReading ? headReading.probability * 100 : rawModelScore,
+        rawScore: headReading ? headBandScore(headReading.probability, headReading.cuts) : rawModelScore,
         probability: headReading ? headReading.probability : null,
         cuts: headReading ? headReading.cuts || null : null,
         scan: scanKind,
@@ -1038,8 +1067,7 @@
     if (verdictModule && typeof verdictModule.decideImageLean === "function") {
       decision = verdictModule.decideImageLean(evidenceInput);
     } else if (rawModelScore != null) {
-      const p = headReading ? headReading.probability : Math.max(0.01, Math.min(0.99, rawModelScore / 100));
-      decision = { lean: p >= 0.5 ? "ai" : "real", confidence: "low", probabilityAi: p };
+      decision = fallbackLean(headReading ? headReading.probability : rawModelScore / 100);
     }
 
     if (evidence) {
@@ -1051,7 +1079,7 @@
       }
     } else {
       verdict = rawModelScore != null
-        ? imageSignalVerdict(headReading ? headReading.probability * 100 : rawModelScore)
+        ? imageSignalVerdict(evidenceInput.pixel.rawScore)
         : "No origin record or metadata clue found";
       parts.push("Evidence ordering unavailable on this device; this result is based on the pixel scan alone.");
     }
@@ -1088,6 +1116,11 @@
       guidance: "Check the original source, compare important credentials in another reputable validator, and look for corroborating evidence. Never use this result alone for discipline, employment, legal, safety, or moderation decisions." };
     applyDecision(imageResult, { lean: decision.lean, confidence: decision.confidence,
       aiLikelihood: decision.probabilityAi * 100 });
+    // The summary copy describes the pixel scan by its own band, never by the
+    // combined likelihood (a signed record can decide without the pixels).
+    imageResult.pixelBand = rawModelScore == null ? "none"
+      : evidenceInput.pixel.rawScore >= IMAGE_AI_BAND ? "high"
+        : evidenceInput.pixel.rawScore >= IMAGE_AI_ELEVATED_BAND ? "elevated" : "below";
     imageResult.leanAuthority = decision.authority || "";
     imageResult.leanDrivers = Array.isArray(decision.drivers) ? decision.drivers.slice(0, 8) : [];
     imageResult.explain = leanSentence(imageResult) + "\n" + imageResult.explain;
@@ -1344,6 +1377,7 @@
               ]).join("\n"), provenanceStatus: provenance.status,
               guidance: "Check the original source and compare important credentials in another reputable validator. Do not make a consequential decision from this credential alone." };
             applyDecision(credentialResult, credentialLean);
+            credentialResult.pixelBand = "none";
             credentialResult.explain = leanSentence(credentialResult) + "\n" + credentialResult.explain;
             return credentialResult;
           }
@@ -1406,6 +1440,7 @@
             ]).join("\n"), provenanceStatus: provenance.status,
             guidance: "Try a shorter standard MP4 or inspect representative still frames, and compare important credentials in another reputable validator." };
           applyDecision(credentialResult, credentialLean);
+          credentialResult.pixelBand = "none";
           credentialResult.explain = leanSentence(credentialResult) + "\n" + credentialResult.explain;
           return credentialResult;
         }
@@ -1418,11 +1453,12 @@
       // Honest aggregation: median (typical frame) + max (worst frame). One
       // spiky frame is reported but doesn't masquerade as the whole video, and
       // the lean follows the typical frame (frameDecision).
-      const frameSignal = frameSignalSummary(valid);
+      const frameSignal = frameSignalSummary(frameBandScores(frameReads, valid));
+      const rawSignal = frameSignalSummary(valid);
       const decision = frameDecision(frameReads.filter(Boolean),
         { status: provenance.status, sourceClass: provenance.sourceClass });
-      const median = frameSignal.median;
-      const maxScore = frameSignal.maxScore;
+      const median = rawSignal.median;
+      const maxScore = rawSignal.maxScore;
       const modelVerdict = frameSignal.verdict;
       const verdict = provenanceEvidence.verdict || modelVerdict;
       const perFrame = frameNotes
@@ -1433,7 +1469,7 @@
           (duration > VIDEO_SCAN_WINDOW_SECONDS ? " (long video: only the first " + fmtClock(VIDEO_SCAN_WINDOW_SECONDS) + " is sampled)" : "") +
           ", all on your device. A video check counts as one check against the free weekly allowance.",
         perFrame,
-        "Engine v2 diagnostics: median " + median + "/100, highest sampled frame " + maxScore + "/100.",
+        "Region scan: median " + median + "/100, highest sampled frame " + maxScore + "/100.",
         "Video limits: this still-image model reads sampled frames; it has not been validated as a full-video detector. Only " + total + " still frames were sampled; motion over time and audio were not analyzed; compression and re-encoding can hide or mimic artifacts, so video confidence is lower than for still images. Nothing left your device.",
       ]);
       const videoResult = { kind: "video", score: frameSignal.score, metricLabel: "Median frame-model score", verdict, explain: parts.join("\n"),
@@ -1443,6 +1479,8 @@
           null, "runs " + fmtClock(duration)),
         guidance: "Inspect the original video, source account, edit history, and multiple representative frames. Never make a consequential decision from this sample alone." };
       applyDecision(videoResult, decision);
+      videoResult.pixelBand = frameSignal.medianRaw >= IMAGE_AI_BAND ? "high"
+        : frameSignal.medianRaw >= IMAGE_AI_ELEVATED_BAND ? "elevated" : "below";
       videoResult.explain = leanSentence(videoResult) + "\n" + videoResult.explain;
       return videoResult;
     } finally {
@@ -1459,6 +1497,9 @@
   // Safari, Android/iOS WebView shells), it explains the screenshot fallback
   // that hands the screenshot to the existing photo picker instead.
   async function scanScreen() {
+    // One check at a time: a capture started mid-check would report its
+    // recording progress into the running check's panel.
+    if (running) { announce("Wait for the current check to finish, then scan your screen.", true); return; }
     switchTab("image");
     if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
       const how = "Screen capture isn't available in this browser or app — iPhone/iPad and most in-app views don't offer it. " +
@@ -1609,6 +1650,15 @@
     return { pct, probability: head ? head.probability : null, cuts: head ? head.cuts || null : null };
   }
 
+  // Per-frame scores for the evidence read: the decision head's band scores
+  // when every scored frame has one, otherwise the engine v2 raw scores.
+  function frameBandScores(reads, raw) {
+    const scored = reads.filter(Boolean);
+    return scored.length === raw.length && scored.every((read) => Number.isFinite(read.probability))
+      ? scored.map((read) => headBandScore(read.probability, read.cuts))
+      : raw;
+  }
+
   function frameNote(read) {
     return Number.isFinite(read.probability)
       ? Math.round(read.probability * 100) + "% AI likelihood"
@@ -1670,9 +1720,10 @@
         guidance: "Try again on a screen with more visible content. This failed check did not use a free check.",
         countsTowardLimit: false };
     }
-    const frameSignal = frameSignalSummary(valid);
-    const median = frameSignal.median;
-    const maxScore = frameSignal.maxScore;
+    const frameSignal = frameSignalSummary(frameBandScores(reads, valid));
+    const rawSignal = frameSignalSummary(valid);
+    const median = rawSignal.median;
+    const maxScore = rawSignal.maxScore;
     const perFrame = notes.map((n, i) => "Frame " + (i + 1) + " of " + total + " — " + n).join("\n");
     const screenResult = {
       kind: "video",
@@ -1683,13 +1734,15 @@
         "Screen capture: " + valid.length + " of " + total + " frames sampled across about " +
           SCREEN_CAPTURE_SECONDS + " seconds of the surface you chose, all on your device. Sharing stopped as soon as the capture finished, nothing was recorded to a file, and a screen check counts as one check against the free weekly allowance.",
         perFrame,
-        "Engine v2 diagnostics: median " + median + "/100, highest sampled frame " + maxScore + "/100.",
+        "Region scan: median " + median + "/100, highest sampled frame " + maxScore + "/100.",
         "Screen limits: this still-image model reads sampled frames; it has not been validated as a screen-content or full-video detector. Only " + total +
           " still frames were sampled; motion over time and audio were not analyzed; scaling, compression, and display rendering can hide or mimic artifacts. Nothing left your device.",
       ].join("\n"),
       guidance: "Find the original file or post rather than judging a re-displayed copy on screen. Never make a consequential decision from this sample alone.",
     };
     applyDecision(screenResult, frameDecision(reads.filter(Boolean), null));
+    screenResult.pixelBand = frameSignal.medianRaw >= IMAGE_AI_BAND ? "high"
+      : frameSignal.medianRaw >= IMAGE_AI_ELEVATED_BAND ? "elevated" : "below";
     screenResult.explain = leanSentence(screenResult) + "\n" + screenResult.explain;
     return screenResult;
   }
@@ -3059,16 +3112,17 @@
   // What the evidence behind a result shows, keyed on the evidence read.
   function evidenceCopy(out) {
     const verdict = String(out.technicalVerdict || out.verdict || "");
-    const score = Number(out.score);
-    const strongPixels = Number.isFinite(score) && score >= IMAGE_AI_BAND;
-    const elevatedPixels = Number.isFinite(score) && score >= IMAGE_AI_ELEVATED_BAND;
+    const strongPixels = out.pixelBand === "high";
+    const elevatedPixels = out.pixelBand === "high" || out.pixelBand === "elevated";
     if (verdict === "Validated AI-origin claim — verify context") {
       return "GAIC found a signed origin label saying this file was AI-generated." +
         (strongPixels
           ? " The pixel scan also found strong AI warning signs."
           : elevatedPixels
             ? " The pixel scan also found AI warning signs."
-            : " GAIC checked the pixels separately.");
+            : out.pixelBand === "below"
+              ? " GAIC checked the pixels separately."
+              : " The pixels were not scanned for this result.");
     }
     if (verdict === "Generator-site source supplied — verify output") {
       return "The source you entered is a site with AI-generation tools. Confirm that this exact image came from that page.";
@@ -3323,7 +3377,7 @@
   const scan = {
     active: false, kind: "media", queue: null, urls: new Set(), marks: null, lock: null,
     views: { done: 0, total: 0 }, frame: { index: 0, total: 0 }, pct: 0,
-    modelReady: false, modelTimer: 0, swapFlip: false, onResize: null,
+    modelReady: false, modelTimer: 0, swapFlip: false, onResize: null, token: 0,
   };
   let analyzeTargetMs = 0;
   function prefersReducedMotion() {
@@ -3559,6 +3613,34 @@
   // Show one picture (the chosen photo, or a sampled video or screen frame) in
   // the viewfinder. It starts desaturated and develops to full colour behind
   // a sweeping beam; an earlier frame fades out underneath the new one.
+  // The picked photo is previewed only after its header proves it small
+  // enough to decode for a 260px viewfinder (the scan itself decodes large
+  // photos to a downscaled copy); under reduced motion an animated GIF, WebP,
+  // or APNG is shown as a still of its first frame.
+  const SCAN_PREVIEW_MAX_PIXELS = 24 * 1000 * 1000;
+  async function scanPreviewPicked(file) {
+    try {
+      const token = scan.token;
+      const head = new Uint8Array(await file.slice(0, Math.min(file.size, 512 * 1024)).arrayBuffer());
+      const dims = imageDimensions(head);
+      if (!dims || !(dims.width * dims.height <= SCAN_PREVIEW_MAX_PIXELS)) return;
+      if (!scan.active || scan.token !== token) return;
+      let shown = file;
+      if (prefersReducedMotion() && /^image\/(gif|webp|png|apng)$/i.test(String(file.type || "")) &&
+          typeof createImageBitmap === "function") {
+        const scale = Math.min(1, 640 / Math.max(dims.width, dims.height));
+        const bitmap = await createImageBitmap(file);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(dims.width * scale));
+        canvas.height = Math.max(1, Math.round(dims.height * scale));
+        canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        if (bitmap.close) bitmap.close();
+        shown = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (!shown || !scan.active || scan.token !== token) return;
+      }
+      scanShowPicture(shown);
+    } catch (_) {}
+  }
   function scanShowPicture(file) {
     const view = $("analyzing-view"), panel = $("analyzing");
     if (!view || !panel || !file) return;
@@ -3697,7 +3779,10 @@
         scan.modelReady = false;
         clearTimeout(scan.modelTimer);
         scan.modelTimer = setTimeout(() => {
-          if (scan.active && !scan.modelReady) scanStage("model-load");
+          const last = scan.queue && scan.queue.last;
+          if (scan.active && !scan.modelReady && !(last && (last.id === "weigh" || last.id === "done"))) {
+            scanStage("model-load");
+          }
         }, SCAN_MODEL_SLOW_MS);
       }
     } catch (_) {}
@@ -3787,6 +3872,7 @@
       const reduced = prefersReducedMotion();
       scan.kind = SCAN_KINDS.indexOf(kind) >= 0 ? kind : "media";
       scan.active = true;
+      scan.token += 1;
       analyzeTargetMs = analyzeDurationFor(scan.kind);
       if (el) el.setAttribute("data-kind", scan.kind);
       // One visible bar, and it is the one exposed as the progressbar.
@@ -3804,9 +3890,7 @@
       scan.pct = 8;
       scan.queue = createStageQueue(renderScanStage, { dwell: SCAN_DWELL_MS });
       scanStage(scan.kind === "text" ? "text-read" : "read", {});
-      if (scan.kind === "image" && pickedFile) {
-        try { scanShowPicture(pickedFile); } catch (_) {}
-      }
+      if (scan.kind === "image" && pickedFile) scanPreviewPicked(pickedFile);
       scan.onResize = () => { try { scanRefit(); } catch (_) {} };
       try { window.addEventListener("resize", scan.onResize); } catch (_) {}
       // Bring the theater into view — on phones the card top sits off-screen

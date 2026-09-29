@@ -68,5 +68,24 @@ rules, so treat 77/77 as a regression floor, not a population accuracy.
 | Browser parity | `e2e.mjs` | drives the real page in Chromium (ORT-Web WASM) |
 | Videos | `make_videos.py` + `e2e.mjs video` | slideshow clips with fades, a black title card, letterbox bars, VP9 at two bitrates — a pipeline test, **not** real AI video |
 
-The image model itself is unchanged (`aicheck-ai-image-v2-fp16.onnx`,
-same checksum). All image gains come from how the pixels are presented to it.
+The scan-v6 results above used the unchanged v2 model file.
+
+## Image decision head (engine v3)
+
+| Step | Script | Notes |
+| --- | --- | --- |
+| Feature model | `add_rich.py`, `to_fp32.py` | adds the 2,304-value `features` output to the v2 file (weights untouched) → `aicheck-ai-image-v3-fp16.onnx`; an fp32 copy speeds up extraction (feature parity ≤ 0.05, logit parity ≤ 0.05) |
+| AI and real sources | data scout (GitHub partial clones, S3, GCS listings) | OpenAI / Google / Midjourney / Seedream / Ideogram / MAI / FLUX prompt galleries; Open Images (photos and non-photo labels), DOCCI, Rico, ChartQA, Wesnoth, Pokémon official art, memegen templates. Nothing third-party is committed |
+| Balanced pool | `build_pool.py`, `make_aug.py` | ≤350 per AI generator cell, ≤400 per real source; dHash de-duplication; each image once, as the original or a JPEG/WebP re-encode at a random size |
+| Human-made graphics | `make_nonphoto.mjs` | dashboards, documents, code, spreadsheets, slides, forms, vector art, and photo memes rendered by headless Chromium |
+| Extraction | `feat_harness.mjs`, `featqueue2.sh` | runs the **real** `detector-worker.js` in Node and records every view's features, so training sees exactly the views the app reads |
+| Head search | `train_rich.py`, `fasthead.py` | leave-one-group-out (10 AI families, 9 real sources); linear vs. MLP heads, feature subsets, C sweep |
+| Calibration and export | `train_final_head.py`, `calib_image.py`, `build_image_head.py` | lean threshold, knot tables, confidence cuts per scan kind; writes `image-head.js` |
+| Reports | `tradeoff.py`, `screens_report.py` | threshold trade-off, screenshot results; per-image held-out scores in `results/image_v3_held_out.jsonl` (hashed ids) |
+| Browser checks | `ui_check.mjs`, `e2e.mjs` | drives the real page in Chromium (ORT-Web WASM): result card text for photos, screenshots, large photos, text, video; `results/video_v3_e2e.jsonl` |
+
+## Text decision (lean, confidence, AI likelihood)
+
+`textcal.py` sets the lean threshold (≤5% of human documents leaning AI,
+leave-one-corpus-out), the displayed-likelihood knots, and the confidence cuts;
+`build_text_engine.py` embeds them in `text-detector.js`.

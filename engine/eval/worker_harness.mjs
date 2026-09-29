@@ -17,9 +17,17 @@ export async function loadWorker(runtimeDir) {
     Uint8Array, Uint8ClampedArray, Float64Array, ArrayBuffer, JSON, Date, Error,
     setTimeout, clearTimeout,
     location: { href: "file://" + path.resolve(runtimeDir) + "/detector-worker.js" },
-    importScripts: () => {},
+    // Only the decision head is loaded for real; ORT and the config are provided above.
+    importScripts: (...names) => {
+      for (const name of names) {
+        if (name === "image-head.js" && fs.existsSync(path.join(runtimeDir, name))) {
+          vm.runInContext(fs.readFileSync(path.join(runtimeDir, name), "utf8"), ctx);
+        }
+      }
+    },
     addEventListener: (type, fn) => { if (type === "message") handlers.push(fn); },
-    postMessage: (msg) => { if (pending) { const p = pending; pending = null; p(msg); } },
+    // Progress messages ({ id, progress }) precede the one final result.
+    postMessage: (msg) => { if (msg && msg.progress) return; if (pending) { const p = pending; pending = null; p(msg); } },
     OffscreenCanvas: function (w, h) { return createCanvas(Math.max(1, w | 0), Math.max(1, h | 0)); },
     createImageBitmap: async (blob) => {
       const img = await loadImage(Buffer.from(await blob.arrayBuffer()));

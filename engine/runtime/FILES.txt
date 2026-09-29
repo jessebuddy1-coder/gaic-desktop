@@ -12,3 +12,6 @@ provenance-verdict.mjs
 is-this-ai.js
 is-this-ai.html
 native.js
+image-head.js
+model-config.js
+models/aicheck-ai-image-v3-fp16.onnx

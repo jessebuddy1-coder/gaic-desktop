@@ -1,4 +1,4 @@
-# GAIC Image Model v2 — provenance, preprocessing, and limitations
+# GAIC Image Model v3 — provenance, preprocessing, decision head, and limitations
 
 This document records the exact bundled on-device image model used by the
 GAIC likelihood signal. It runs locally in ONNX Runtime Web; no image is
@@ -6,15 +6,16 @@ sent to a server for this result.
 
 | Field | Value |
 | --- | --- |
-| File | `models/aicheck-ai-image-v2-fp16.onnx` |
-| SHA-256 | `bb98ce3021b2717595b3fe625871e247a7ac15623296e4ad1e2207453d529b57` |
+| File | `models/aicheck-ai-image-v3-fp16.onnx` (engine v3; same network and weights as v2, plus a `features` output) |
+| SHA-256 | `bc7f12a0ca9750791607bbcf32159749e06079e4145a3e62c602e40f015f4fab` (v3); v2 was `bb98ce3021b2717595b3fe625871e247a7ac15623296e4ad1e2207453d529b57` |
+| Decision head | `image-head.js`, SHA-256 `9b59e2b14860b228e56b627378728af2b5e310adec0dc3cb26f173d641017707` (see "Engine v3" below) |
 | Source | [OwensLab/commfor-model-224](https://huggingface.co/OwensLab/commfor-model-224) at revision `26afc31e6b40c312c3fd42c05a758be62446215b` |
 | Paper | Community Forensics: Using Thousands of Generators to Train Fake Image Detectors ([arXiv:2411.04125](https://arxiv.org/abs/2411.04125), CVPR 2025) |
 | License | MIT (model weights and reference code) |
 | Architecture | timm `vit_small_patch16_224.augreg_in21k_ft_in1k` backbone + 1-logit head (21.7M params) |
 | Conversion | safetensors → ONNX opset 17 locally (torch 2.8), ORT transformer-optimizer fusion, fp16 weights with fp32 I/O; torch-vs-ORT parity ≤ 7e-06, fp32-vs-fp16 per-image score delta ≤ 0.22 points |
 | Preprocessing | the official center view first resizes the complete image so its shortest edge is 256, then applies an integer 224×224 center crop; other declared views are rendered at 224×224; every view uses x/255, then ImageNet mean `[0.485,0.456,0.406]` / std `[0.229,0.224,0.225]` |
-| Output | one logit per view; `sigmoid(logit)` is shown as a model signal (×100), not a probability |
+| Output | per view: the original logit (engine v2 diagnostics) and a 2,304-value feature read by the decision head; the app shows the head's calibrated AI likelihood, a lean, and a confidence level |
 | Training basis | ~2.7M images spanning several thousand community generative models (through 2024), per the paper |
 
 ## Why v2 replaced v1
@@ -155,7 +156,7 @@ or a letterboxed video frame.
 4. **Report the stronger reading.** The headline is the higher of the picture
    reading and the v5 strongest-region value, so the new reading can only add
    detections. Both values are shown in the explanation. Low values on
-   composite frames stay "inconclusive"; they never become a clearing score.
+   composite frames are now read by the engine v3 decision head below.
 
 The +1.5 shift was chosen by a fixed rule. It is the largest shift that kept
 zero real screenshots at the 95/100 band on a calibration half (by file
@@ -220,6 +221,142 @@ images, not captures from real devices. Open Images photos are web-resized
 Flickr JPEGs, not camera originals. The AI set over-represents GPT-4o gallery
 images, many of which are stylized. None of this is a population accuracy
 claim.
+
+## Engine v3: decision head and decisive results (September 2026)
+
+The v5 scan and the v6 picture reading still choose **which views** of an
+image the model reads; the pinned v5 functions are unchanged. What changed is
+**how the model's reading of those views is decided**.
+
+**Why.** Measured on the images below, the v2 model's own last layer caught
+about one in five images from 2025–2026 generators (GPT-Image, Nano Banana,
+Seedream, Midjourney v6–v7, Ideogram, MAI-Image) at its warning bands. The
+network's internal features separate those images much better than its final
+layer does.
+
+**The v3 model file.** The same fp16 network with the same weights. The file
+adds one output, `features`: the class token and the mean of the 196 patch
+tokens at three depths (the LayerNorm outputs entering blocks 7 and 10, and
+the final LayerNorm), 6 × 384 = 2,304 values per view. The original `logit`
+output is still output 0, and it matches v2 exactly. The conversion script is
+`eval/add_rich.py`. The worker reads `outputNames[0]` as before, so a cached
+v2 file keeps working; the head then stays off.
+
+**The head.** `image-head.js` holds one logistic-regression layer over the
+2,304 values, with feature standardization folded into the weights (C =
+0.005). The worker applies it to every view the scan already runs and
+averages in logit space. For a located picture (scan v6), the headline uses
+the higher of the picture average and the frame average. A monotone knot table
+maps that average to the displayed AI likelihood, with separate tables for
+direct images, composite frames, and video frames. The worker computes the
+head only when both `image-head.js` and the feature output are present, and
+otherwise returns the engine v2 reading unchanged.
+
+**Training data** (on-device features extracted by the real worker code;
+nothing is committed; see `eval/README.md`):
+
+| Class | Source | Images |
+| --- | --- | ---: |
+| AI | OpenAI GPT-4o, gpt-image-1/1.5/2/2.5 (public prompt galleries) | 3,729 |
+| AI | Google Nano Banana / Nano Banana Pro / Gemini image | 964 |
+| AI | mixed-generator poster, comparison, and case galleries | 895 |
+| AI | photorealistic social posts, avatars, and product shots (mixed generators) | 721 |
+| AI | Midjourney v6, v6.1, v7 | 678 |
+| AI | Seedream 4.5 / 5.0 | 201 |
+| AI | older open models (Kolors, HunyuanDiT, SD, PixArt, SGM) | 184 |
+| AI | FLUX, Ideogram 4.0, MAI-Image 2.5 | 92 |
+| Real | Open Images photos (Flickr, CC BY 2.0) | 3,020 |
+| Real | DOCCI photos (2023 camera photos, CC BY 4.0) | 693 |
+| Real | human-made graphics rendered locally (dashboards, documents, code, slides, forms, memes) | 700 |
+| Real | Open Images non-photo images (drawings, comics, screenshots, diagrams) | 400 |
+| Real | Rico Android app screenshots | 390 |
+| Real | Wesnoth digital paintings | 358 |
+| Real | Pokémon official digital illustrations | 383 |
+| Real | ChartQA charts | 331 |
+| Real | meme templates | 187 |
+
+Each picked image was presented once, either as the original file or as a
+re-encoded copy: 35% JPEG and 15% WebP at quality 60–95, randomly resized and
+flattened on white. That way no class can be told apart by codec, size, or
+alpha. Near-duplicates (dHash ≤ 4 bits) were removed across all sources. Some
+AI galleries come from social posts and may include edits of real photos,
+which makes the AI side harder, not easier.
+
+**Evaluation protocol: leave one group out.** Each of the 10 AI generator
+families and each of the 9 real sources is held out in turn, and a head trained
+on everything else scores it. Every number below is therefore on a generator
+family, or a kind of real image, that the head never saw. All thresholds and
+confidence levels were set on these held-out scores. They are then applied
+unchanged to the production head, which is trained on all groups, so these
+figures are conservative for kinds of images that were in training.
+
+**Lean threshold and confidence levels.** An image leans AI when its displayed
+likelihood is ≥ 50%. The threshold maximizes the family-balanced share of AI
+images caught, subject to two limits: the source-balanced share of real images
+leaning AI is at most 5%, and no single real source exceeds 10%. Confidence
+cut points are where the held-out isotonic estimate of the share of correct
+leans reaches its target: AI high ≥ 95% and medium ≥ 85%; real high ≥ 90% and
+medium ≥ 75%.
+
+**Results, direct images** (13,926 images, every one scored by a head that
+never saw its group):
+
+| | GAIC 2.4.0 warning (≥95) | v2 model at the same real false-lean rate | **engine v3** |
+| --- | ---: | ---: | ---: |
+| AI images called AI (family-balanced) | 20.6% | 28.3% | **67.7%** |
+| Real images called AI (source-balanced) | 1.6% | 3.8% | **4.0%** |
+| AUC (pooled) | 0.719 | 0.719 | **0.954** |
+
+| AI family (held out) | v2 at same rate | **v3** |
+| --- | ---: | ---: |
+| Photorealistic social / avatar / product | 17% | **81%** |
+| OpenAI GPT-4o / gpt-image | 14% | **70%** |
+| Seedream | 16% | **69%** |
+| mixed galleries | 23% | **67%** |
+| Midjourney | 30% | **62%** |
+| Google Nano Banana | 18% | **60%** |
+| Ideogram (27 images) | 11% | **37%** |
+
+Real images leaning AI, per held-out source: charts 0.0%, rendered graphics
+0.3%, Open Images photos 1.8%, Pokémon art 1.8%, Rico app screens 2.1%,
+Wesnoth paintings 2.8%, memes 6.4%, Open Images non-photo 9.8%, DOCCI camera
+photos 10.7%. In a 5-fold split where every source is represented in training
+(closer to the shipped head), DOCCI photos leaned AI 0.1% of the time.
+
+Share of correct leans per confidence level (held out, balanced classes):
+
+| Lean / confidence | Share of images | Correct |
+| --- | ---: | ---: |
+| AI, high | 25% | **98.0%** |
+| AI, medium | 11% | 89.8% |
+| Real, high | 33% | **97.1%** |
+| Real, medium | 8% | 82.8% |
+| Real, low | 23% | 42.2% (a close call, labelled as one) |
+
+**Screenshots** (1,040 screenshots of the same images in six app and web
+layouts). v3 calibrates composite frames on their own. See `RESULTS.md` for the
+held-out numbers per layout.
+
+**Video.** Video frames skip the picture reading and use the direct table
+flattened by a factor of 0.75 in log-odds, with stricter confidence cuts. No
+public AI-video set was reachable for calibration, so video leans are
+deliberately less confident than photo leans. See `RESULTS.md`.
+
+**Limitations.**
+* The AI side is dominated by public prompt galleries: stylized,
+  poster-like, and social images. Unedited photorealistic output from the
+  newest generators, heavily edited or composited images, and generators with
+  no gallery (for example Recraft, Imagen standalone, Firefly) are the most
+  likely misses.
+* A kind of real image that is unlike every training source can lean AI more
+  often. The worst held-out sources were modern high-quality camera photos
+  and scans or photos of artwork, at about 10%.
+* Confidence levels are measured on these sets, not on the population of
+  images people check. A low-confidence lean is a close call.
+* The metadata and Content Credential weights that `decideImageLean` adds to
+  the pixel reading are judgment-set priors, not measured. A validated
+  AI-origin credential and a trusted capture credential decide the lean
+  outright.
 
 ## Independent second-model candidate
 

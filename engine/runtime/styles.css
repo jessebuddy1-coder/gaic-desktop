@@ -406,6 +406,7 @@ textarea::placeholder{color:var(--muted-dim)}
 /* staged narration of the real checks + progress under the frame */
 .analyzing-stage{margin:8px 0 0;min-height:1.4em;color:var(--accent);font-size:15px;font-weight:750;letter-spacing:.01em}
 .analyzing-stage-text{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:480px){.analyzing-stage-text{white-space:normal;overflow:visible;text-overflow:clip;min-height:2.8em}}
 .analyzing-stage-text.stage-in-a{animation:aicheck-stage-a .22s ease-out both}
 .analyzing-stage-text.stage-in-b{animation:aicheck-stage-b .22s ease-out both}
 @keyframes aicheck-stage-a{from{opacity:0;transform:translate3d(0,5px,0)}to{opacity:1;transform:translate3d(0,0,0)}}

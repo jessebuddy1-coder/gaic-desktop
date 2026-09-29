@@ -10,7 +10,7 @@ importScripts("model-config.js", "vendor/ort/ort.min.js");
 // engine v2 scan instead of stopping the worker.
 try { importScripts("image-head.js"); } catch (_) {}
 
-const MAX_INPUT_BYTES = 8 * 1024 * 1024;
+const MAX_INPUT_BYTES = 50 * 1024 * 1024;
 const MAX_RESIZED_LONG_EDGE = 8192;
 const DEFAULT = {
   model: "models/ai-detector.onnx",
@@ -346,7 +346,29 @@ function tensorForRegion(bitmap, region) {
   return new self.ort.Tensor("float32", values, [1, 3, size, size]);
 }
 
-async function decodedRegions(bytes, type, allowPicture) {
+/* A photo above the scan's working size arrives with a short-side target and
+   is decoded straight to that size; only one side is given so the decoder
+   keeps the (orientation-corrected) aspect ratio. */
+function decodeOptions(resize) {
+  const shortSide = resize && Number(resize.shortSide);
+  if (!Number.isSafeInteger(shortSide) || shortSide < 224 || shortSide > MAX_RESIZED_LONG_EDGE) return undefined;
+  return { shortSide };
+}
+
+async function decodeBitmap(blob, resize) {
+  const target = decodeOptions(resize);
+  if (!target) return createImageBitmap(blob);
+  // Decode once at the target width, then correct if the oriented short side
+  // turned out to be the height.
+  const probe = await createImageBitmap(blob, { resizeWidth: target.shortSide, resizeQuality: "high" });
+  if (probe.width <= probe.height) return probe;
+  const ratio = probe.height / probe.width;
+  probe.close();
+  return createImageBitmap(blob, { resizeHeight: target.shortSide, resizeQuality: "high",
+    resizeWidth: Math.max(1, Math.round(target.shortSide / ratio)) });
+}
+
+async function decodedRegions(bytes, type, allowPicture, resize) {
   if (
     !(bytes instanceof ArrayBuffer) ||
     bytes.byteLength < 1 ||
@@ -356,9 +378,9 @@ async function decodedRegions(bytes, type, allowPicture) {
   ) {
     return null;
   }
-  const bitmap = await createImageBitmap(new Blob([bytes], {
+  const bitmap = await decodeBitmap(new Blob([bytes], {
     type: typeof type === "string" && type.startsWith("image/") ? type : "application/octet-stream",
-  }));
+  }), resize);
   let picture = null;
   if (allowPicture) {
     try { picture = locatePicture(bitmap); } catch (_) { picture = null; }
@@ -1014,7 +1036,7 @@ self.addEventListener("message", async (event) => {
     } else {
       // Video frames opt out: the picture reading was calibrated on
       // screenshots and screen captures, not on lossy video frames.
-      const decoded = await decodedRegions(request.bytes, request.type, request.composite !== false);
+      const decoded = await decodedRegions(request.bytes, request.type, request.composite !== false, request.resize);
       if (!decoded) {
         self.postMessage({ id, ...boundedError("worker_unsupported") });
         return;
@@ -1067,7 +1089,8 @@ self.addEventListener("message", async (event) => {
     }
     // Absent when the head file or the model's feature output is missing; the
     // caller then falls back to the engine v2 reading.
-    const head = headResult(frameHeadLogits, pictureHeadLogits, request.composite === false);
+    let head = null;
+    try { head = headResult(frameHeadLogits, pictureHeadLogits, request.composite === false); } catch (_) { head = null; }
     self.postMessage({
       id,
       ok: true,

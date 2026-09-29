@@ -2,9 +2,11 @@
   "use strict";
 
   const DAILY_LIMIT = 1;
-  const MAX_BYTES = 5 * 1024 * 1024;
-  const MAX_SIDE = 4096;
-  const MAX_PIXELS = 16_000_000;
+  // Phone photos from 48-200 MP cameras are often 10-40 MB; the detector
+  // decodes anything above its 24 MP working size as a downscaled copy.
+  const MAX_BYTES = 50 * 1024 * 1024;
+  const MAX_SIDE = 16384;
+  const MAX_PIXELS = 120_000_000;
   const HIGH_SIGNAL = 0.99;
   const ELEVATED_SIGNAL = 0.95;
   const USAGE_KEY = "aicheck.quick.daily.v1";
@@ -171,7 +173,7 @@
       return "Choose a JPEG or PNG image.";
     }
     if (!Number.isFinite(file.size) || file.size < 1 || file.size > MAX_BYTES) {
-      return "Choose an image no larger than 5 MB.";
+      return "Choose an image no larger than 50 MB.";
     }
     const header = new Uint8Array(await file.slice(0, Math.min(file.size, 1024 * 1024)).arrayBuffer());
     const size = dimensions(header);
@@ -183,7 +185,7 @@
       size.height > MAX_SIDE ||
       size.width * size.height > MAX_PIXELS
     ) {
-      return "Choose an image up to 4096 px per side and 16 megapixels.";
+      return "Choose an image up to 16,384 px per side and 120 megapixels.";
     }
     return "";
   }

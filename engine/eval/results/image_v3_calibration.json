@@ -1,0 +1,30 @@
+{
+ "variant": "rich",
+ "C": 0.005,
+ "composite_rule": "max",
+ "thresholds": {
+  "direct": 2.655565452575683,
+  "frame": 2.655565452575683,
+  "composite": 1.602518129348755
+ },
+ "cuts": {
+  "direct": {
+   "aiHigh": 0.7668,
+   "aiMedium": 0.5,
+   "realHigh": 0.0162,
+   "realMedium": 0.0425
+  },
+  "composite": {
+   "aiHigh": 0.8512,
+   "aiMedium": 0.8321,
+   "realHigh": 0.0384,
+   "realMedium": 0.1018
+  },
+  "frame": {
+   "aiHigh": 0.93,
+   "aiMedium": 0.8,
+   "realHigh": 0.0162,
+   "realMedium": 0.0425
+  }
+ }
+}

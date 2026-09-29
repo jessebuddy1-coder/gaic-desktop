@@ -31,6 +31,6 @@ test("video frames keep the 2.4.0 scan; screenshots and screen frames may add th
   const compat = read("onnx-detector.js"), worker = read("detector-worker.js");
   assert.match(compat, /composite: !\(file && file\.aicheckScanHint === "video-frame"\)/);
   assert.match(compat, /if \(!\(file && file\.aicheckScanHint === "video-frame"\)\) \{/);
-  assert.match(worker, /decodedRegions\(request\.bytes, request\.type, request\.composite !== false\)/);
+  assert.match(worker, /decodedRegions\(request\.bytes, request\.type, request\.composite !== false(, request\.resize)?\)/);
   assert.match(worker, /if \(allowPicture\) \{\s*try \{ picture = locatePicture\(bitmap\); \}/);
 });

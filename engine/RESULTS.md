@@ -1,39 +1,167 @@
-# Engine v2 — measured results vs GAIC 2.4.0
+# Engine update — measured results vs GAIC 2.4.0
 
-Every comparison runs the **unmodified 2.4.0 code** and the engine v2 code on
-the same inputs. Nothing here is a population accuracy claim: these are public
-research corpora and curated image sets, described in `eval/README.md`.
+Every comparison runs the **unmodified 2.4.0 code** and the updated code on
+the same inputs. These are public research corpora and curated image sets,
+described in `eval/README.md`. The confidence levels are measured on them, not
+on the population of things people check.
 
-## Text AI check
+## Every check now ends with an answer
 
-**Setup.** Documents pass the app's own gates first (≥1,000 characters, ≥3
-sentences, English). The "high band" is the "Several formulaic patterns
-matched" verdict, and "Few" is the lowest band.
+2.4.0 withheld a result for most checks. Photos below the 95/100 band showed
+"No rating" with "Model result is inconclusive", text showed a pattern band,
+and video and screen checks showed "Sampled frames are inconclusive".
 
-**Corpora the model never trained on** (their repositories carry no license, so
-they were used only for testing):
+Now every completed check shows a **lean** (AI-written or human-written;
+AI-generated or real), a **confidence level** (high, medium, or low), and an
+estimated **AI likelihood**. Genuine failures stay errors and are never given
+a lean: text under 1,000 characters, an unreadable file, or a model that could
+not run with no other evidence. Each confidence level was set on held-out data
+so that its share of correct leans meets a target. A low-confidence lean is a
+close call, and the app says so.
 
-| Held-out set | AUC old → new | Humans wrongly flagged old → new | AI caught (high band) old → new | AI in "Few" old → new |
-|---|---|---|---|---|
-| DetectRL: ChatGPT, Claude-instant, PaLM-2, Llama-2-70B across 4 domains (3,167 human / 1,081 AI) | 0.83 → **0.94** | 0.0% → 0.1% | 0.2% → **31%** | 77% → **9%** |
-| DetectRL: paraphrased, prompt-attacked, and perturbed AI (1,957 AI) | 0.81 → **0.93** | 0.0% → 0.1% | 0.1% → **28%** | 82% → **11%** |
-| Student and college essays vs GPT (233 / 57) | 0.78 → **0.99** | 0% → 0% | 0% → **32%** | 77% → **2%** |
-| ArguGPT AI essays (1,717 AI) | — | — | 0.3% → **52%** | 14% → **0.5%** |
+## Photos
 
-**Leave-one-corpus-out**, where each corpus is scored by a model trained
-without it:
+The image network is the same, with the same weights. Engine v3 exposes more
+of what that network computes and reads it with a new decision head, trained
+on 2025–2026 generators and on real photos, art, charts, and screenshots
+(`runtime/models/AICHECK-IMAGE-MODEL.md`).
 
-* AUC rose on all seven corpora: 0.27–0.89 → 0.76–0.99. On 2024 models
-  (GPT-4o, Claude 3.5 Sonnet, Gemini 1.5, Llama 3.3, Qwen 2.5), it rose from
-  0.79 to **0.99**.
-* Human text wrongly flagged was 0–0.8% per corpus. The one exception is 1 of
-  26 documents in the smallest corpus.
-* **Non-native English writers** (1,192 held-out learner essays): **0.5%**
-  flagged in the high band.
-* Humanized or paraphrased AI (7,443 documents): 38% flagged. The old
-  heuristic left 86% of them in its lowest band.
+**Protocol: leave one group out.** 13,926 images: 10 AI generator families and
+9 real-image sources. Each group is scored by a head that **never saw that
+group**, so every AI image comes from a generator family the head was not
+trained on. Thresholds were set on these held-out scores.
 
-The full table is in `runtime/models/GAIC-TEXT-MODEL.md`.
+| | 2.4.0 warning (≥95) | 2.4.0 model at the same false-lean rate | **Updated** |
+| --- | ---: | ---: | ---: |
+| AI images called AI (family-balanced) | 20.6% | 28.3% | **67.7%** |
+| Real images called AI (source-balanced) | 1.6% | 3.8% | **4.0%** |
+| AUC | 0.719 | 0.719 | **0.954** |
+
+| Held-out AI family | 2.4.0 model at the same rate | **Updated** |
+| --- | ---: | ---: |
+| Photorealistic social posts, avatars, product shots | 17% | **81%** |
+| OpenAI (GPT-4o, gpt-image-1/1.5/2/2.5) | 14% | **70%** |
+| Seedream 4.5/5.0 | 16% | **69%** |
+| Midjourney v6–v7 | 30% | **62%** |
+| Google Nano Banana / Pro | 18% | **60%** |
+
+**Real images leaning AI, per held-out source:**
+
+| Source | Leaned AI |
+| --- | ---: |
+| Charts | 0% |
+| App screenshots | 2.1% |
+| Open Images photos | 1.8% |
+| Digital paintings | 2.8% |
+| Memes | 6.4% |
+| Open Images non-photo images | 9.8% |
+| 2023 camera photos (DOCCI) | 10.7% |
+
+The DOCCI figure falls to 0.1% when that kind of photo is represented in
+training, as it is in the shipped head.
+
+**How often each confidence level was right:**
+
+| Lean / confidence | Right |
+| --- | ---: |
+| AI, high | **98%** |
+| AI, medium | 90% |
+| Real, high | **97%** |
+| Real, medium | 83% |
+| Real, low (a close call) | 42% |
+
+## Screenshots
+
+1,040 screenshots (520 real, 520 AI) of the same images in six app and web
+layouts. Scores are held out by generator family, like the photo numbers.
+
+| | 2.4.0 | Engine v2 (scan v6) | **Updated** |
+| --- | ---: | ---: | ---: |
+| AI screenshots called AI | 3.1% (≥95) | 9.8% (≥95) | **70.4%** |
+| Real screenshots called AI | 0% | 0% | **4.0%** |
+| AUC | 0.608 | 0.667 | **0.929** |
+
+Per layout (AI called AI / real called AI):
+
+| Layout | AI called AI | Real called AI |
+| --- | ---: | ---: |
+| News article | 64% | 3.0% |
+| Dark AI chat | 71% | 2.4% |
+| Letterboxed player | 78% | 4.1% |
+| Light generator portal | 77% | 1.4% |
+| Phone social feed | 60% | 3.2% |
+| Phone photo viewer | 75% | 10.5% |
+
+## Text
+
+Same trained model as engine v2. The lean threshold, AI likelihood, and
+confidence levels were set on leave-one-corpus-out scores. A gradient-boosted
+alternative did not beat it on unseen corpora, so the simpler model stays.
+
+**Human-written documents leaning AI:**
+
+| Set | Leaned AI |
+| --- | ---: |
+| Unseen training corpora | 4.8% |
+| DetectRL | 2.9% |
+| Non-native English essays | 2.6% |
+
+**AI documents leaning AI:**
+
+| Set | Leaned AI |
+| --- | ---: |
+| Unseen training corpora | 64% |
+| DetectRL | 67% |
+| Detector-bias GPT essays | 79% |
+| ArguGPT | 92% |
+
+**How often each confidence level was right:**
+
+| Lean / confidence | Unseen corpora | Held-out corpora |
+| --- | ---: | ---: |
+| AI, high | **98.5%** | **99.8%** |
+| AI, medium | 90% | 96% |
+| Human, medium | 81% | 93% |
+
+Against 2.4.0's heuristic, on the held-out DetectRL corpus:
+
+| | 2.4.0 | Updated |
+| --- | ---: | ---: |
+| AUC | 0.83 | **0.94** |
+| AI texts in the lowest band | 77% | **9%** |
+
+Full tables are in `runtime/models/GAIC-TEXT-MODEL.md`.
+
+## Video and screen checks
+
+In real Chromium, on 30 synthetic slideshow clips (15 AI, 15 real), with fades,
+title cards, letterbox bars, and VP9 compression:
+
+| | 2.4.0 | **Updated** |
+| --- | ---: | ---: |
+| AI clips called AI | 0 of 15 | **5 of 15** |
+| Real clips called AI | 0 of 15 | **0 of 15** |
+
+The other 10 AI clips mostly read "Leans real — low confidence". Real clips
+read "Likely real" at high or medium confidence, 12 of 15.
+
+Video is the weakest check. It reads 8 sampled still frames, and no public
+AI-video set was reachable for calibration. Video frames therefore use a
+deliberately flatter calibration. Blank frames are skipped, and unchanged
+screen frames reuse a score, as in engine v2.
+
+## Large photos
+
+The on-device check now accepts photos up to **50 MB** and **120 MP**. The old
+limits were 8 MB and 24 MP, which rejected many modern phone photos.
+
+* Photos above the scan's 24 MP working size are decoded straight to a
+  downscaled copy, so a large photo never needs a full-resolution canvas.
+* Photos within the old limits get exactly the same scan as before.
+* In the browser test, a 20 MB, 55 MP JPEG was checked in 10 s.
+* The quick-check page (`is-this-ai.html`) accepts the same sizes.
+* The native share-sheet entry keeps its 8 MB cap. It is set in native app
+  code outside this runtime (see README).
 
 ## Rewriting (writing assist)
 
@@ -41,69 +169,36 @@ The benchmark has 77 reviewed cases: wordy phrases, verb tenses, a/an
 agreement, sentence capitals, and things that must not change (abbreviations,
 indentation, quotes, URLs, code).
 
-| | 2.4.0 | engine v2 |
-|---|---|---|
+| | 2.4.0 | Updated |
+| --- | --- | --- |
 | Correct outputs | 26 / 77 (34%) | **77 / 77 (100%)** |
 | Corrupts untouched text | yes: `U.S.A` → `U. S. A`, `Node.JS` → `Node. JS`, indentation flattened | no: text outside an edit is byte-identical |
 | Grammar at edit sites | `an additional fee` → `an more fee` | `an extra fee`; a/an repaired |
 | Direct quotes, code, URLs | edited | never edited |
 
-The cases were written alongside the new rules, so 77/77 is a regression floor,
-not a population accuracy.
+The cases were written alongside the new rules, so 77/77 is a regression
+floor, not a population accuracy.
 
-## Photos, screenshots, video, and screen checks
+## Scanning animation
 
-The ONNX model file is unchanged. Ordinary photos get the 2.4.0 scan
-byte-for-byte: 149 of 150 sampled outputs were identical, and the 150th failed
-to decode under both scanners.
+The scanning panel is now a live viewfinder driven by real pipeline events.
 
-The table runs the unmodified 2.4.0 worker and the engine v2 worker on the
-same files, with the same model file.
-
-| Set | Scanner | AUC | Real flagged ≥95 | Real flagged ≥99 | AI caught ≥95 | AI caught ≥99 |
-|---|---|---:|---:|---:|---:|---:|
-| **Screenshots** (520 real, 520 AI) | 2.4.0 | 0.608 | 0/520 | 0/520 | 16/520 (3.1%) | 11/520 (2.1%) |
-| **Screenshots** (520 real, 520 AI) | engine v2 | **0.667** | **0/520** | **0/520** | **51/520 (9.8%)** | **32/520 (6.2%)** |
-| Direct images (520 real, 1,447 AI) | 2.4.0 | 0.695 | 6/520 | 1/520 | 209/1447 (14.4%) | 151/1447 (10.4%) |
-| Direct images (520 real, 1,447 AI) | engine v2 | 0.695 | 6/520 | 1/520 | 210/1447 (14.5%) | 151/1447 (10.4%) |
-
-**Screenshots.** The six layouts are a dark AI chat, a light generator
-portal, a phone social feed, a phone photo viewer, a news article, and a
-letterboxed player.
-
-* The new scanner caught about **3× more AI screenshots** at both warning
-  bands and flagged no real screenshot.
-* Every layout was equal or better. The generator portal went from 0/78 to
-  10/78 AI caught at 95, and the news article from 1/101 to 13/101.
-* In a headless-Chromium screen-capture test, a screenshot was played as a
-  simulated shared-screen stream through the real capture code. The picture
-  was located in 4 of 4 captures.
-
-**Direct photos** are effectively unchanged, because this model misses most
-modern closed-generator images (GPT-4o, Gemini) no matter how the pixels are
-presented. Calibrated to the old scanner's false-alarm level, every scan
-variant tried caught about the same 12–15% at the 95 band. Improving
-direct-photo accuracy further needs a better image model. That would be a
-reviewed model swap, which this update deliberately does not make.
-
-**Video.** In real Chromium, on synthetic slideshow clips with fades, black
-title cards, letterbox bars, and heavy compression:
-
-* All **74 of 74** non-blank frames scored exactly as in 2.4.0.
-* The **6** black title-card frames were skipped instead of being scored as
-  evidence.
-
-Detection did not change measurably on this set: 0 of 15 AI and 0 of 15 real
-clips were flagged at the median, before and after. Video frames are
-deliberately kept out of the screenshot reading. On lossy video it raised one
-frame of a real clip to 95/100 in testing, so it was disabled for video.
+* **Photos and screenshots.** The user's own picture develops from grey to
+  colour behind a sweeping beam. Bracket boxes lock onto each region the model
+  actually reads, and a "picture located" box appears on screenshots.
+* **Video and screen.** Each sampled frame is shown as it is read.
+* **Text.** Shows an excerpt of the user's text, with its real passage and
+  word counts.
+* **Rest of the page.** Pixel-identical to 2.4.0, in idle and result states,
+  on desktop and phone widths.
+* **Reduced motion.** A designed still state.
+* **Performance.** All animations run on the compositor, off the main thread.
 
 ## Speed
 
-* **Text:** about 1 ms per 260-word passage in Node, and about 50 ms for the
-  largest allowed input (100,000 characters).
-* **Photos:** the same work as 2.4.0, plus one ≤512 px layout pass (a few ms).
-* **Screenshots:** 12 model runs instead of 8.
-* **Videos and screens:** 8 frames, as before. Blank frames trigger up to 2
-  extra seeks, and unchanged screen frames skip the model. In the browser
-  test, a static screen needed 1 scan instead of 8.
+* **Text:** about 1 ms per 260-word passage, and 50 ms for the largest input.
+* **Photos:** the same model runs as before. The decision head is one
+  2,304-value dot product per view.
+* **Browser test timings:**
+  * about 10–14 s per photo, including the animation floor
+  * about 45 s per 8-frame video on a 4-core test machine

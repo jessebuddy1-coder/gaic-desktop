@@ -152,3 +152,27 @@ test("the v3 model file is configured and exposes the head's feature size", () =
   assert.ok(bytes.includes(Buffer.from("features")), "feature output present");
   assert.ok(bytes.includes(Buffer.from("logit")), "logit output present");
 });
+
+test("photos above the scan's working size decode to a downscaled copy; smaller ones do not", async () => {
+  const src = read("onnx-detector.js");
+  assert.match(src, /const MAX_INPUT_BYTES = 50 \* 1024 \* 1024;/);
+  const worker = read("detector-worker.js");
+  assert.match(worker, /const MAX_INPUT_BYTES = 50 \* 1024 \* 1024;/);
+  // decodeBitmap: no resize request -> plain decode; a resize request -> one side given.
+  const calls = [];
+  const ctx = { console, Math, Number, Object, Promise, location: { href: "file:///w.js" }, importScripts() {}, addEventListener() {},
+    postMessage() {}, Blob: class {},
+    createImageBitmap: async (blob, opts) => { calls.push(opts || null);
+      const w = opts && opts.resizeWidth ? opts.resizeWidth : 8064, h = opts && opts.resizeHeight ? opts.resizeHeight : (opts ? Math.round(opts.resizeWidth * 6048 / 8064) : 6048);
+      return { width: w, height: h, close() {} }; } };
+  ctx.self = ctx; ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(read("detector-worker.js"), ctx);
+  let b = await ctx.decodeBitmap({}, undefined);
+  assert.equal(calls.pop(), null);
+  assert.equal(b.width, 8064);
+  b = await ctx.decodeBitmap({}, { shortSide: 4242 });
+  assert.ok(Math.min(b.width, b.height) === 4242, "short side hits the target");
+  assert.ok(b.width * b.height <= 24.1e6);
+  assert.equal(ctx.decodeOptions({ shortSide: 100 }), undefined, "never below the model input size");
+});

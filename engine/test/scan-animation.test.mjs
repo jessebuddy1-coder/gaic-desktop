@@ -334,6 +334,7 @@ function loadScanSection({ reduced = false } = {}) {
     window: { matchMedia: () => ({ matches: reduced }), addEventListener() {}, removeEventListener() {} },
     announce() {},
     normalizeTextForAnalysis: (v) => String(v || ""),
+    imageDimensions: () => ({ width: 400, height: 300 }),
     $: (id) => elements[id] || null,
   };
   ctx.global = ctx.window;
@@ -345,13 +346,15 @@ function loadScanSection({ reduced = false } = {}) {
     " scanModelProgress, scanDetectOptions, scanPanelProgress, scanPreviewText, scan, pick: (f) => { pickedFile = f; } };", ctx);
   return { api: ctx.api, elements, urls, clock: c };
 }
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 const mediaOf = (elements) => elements["analyzing-view"].children.filter((c) => c.classList.contains("analyzing-media"));
 const load = (media, w = 400, h = 300) => { const shot = media.children[0]; shot.naturalWidth = w; shot.naturalHeight = h; shot.onload(); };
 
-test("preview URLs are revoked on teardown, idempotently", () => {
+test("preview URLs are revoked on teardown, idempotently", async () => {
   const { api, elements, urls, clock: c } = loadScanSection();
-  api.pick({ name: "photo.jpg" });
+  api.pick({ name: "photo.jpg", type: "image/jpeg", size: 1000, slice: () => ({ arrayBuffer: async () => new ArrayBuffer(16) }) });
   api.setAnalyzing(true, "image");
+  await settle();   // the preview waits for the header size check
   assert.equal(urls.made.length, 1);
   const [media] = mediaOf(elements);
   load(media);
@@ -404,10 +407,11 @@ test("exactly one progressbar is exposed, before, during, and after a scan", () 
   assert.equal(api.scanPanelProgress(0.5), false);
 });
 
-test("region ticks move the box but only major steps are announced", () => {
+test("region ticks move the box but only major steps are announced", async () => {
   const { api, elements, clock: c } = loadScanSection();
-  api.pick({ name: "photo.jpg" });
+  api.pick({ name: "photo.jpg", type: "image/jpeg", size: 1000, slice: () => ({ arrayBuffer: async () => new ArrayBuffer(16) }) });
   api.setAnalyzing(true, "image");
+  await settle();
   load(mediaOf(elements)[0]);
   const said = [];
   const sr = elements["analyzing-stage-sr"];

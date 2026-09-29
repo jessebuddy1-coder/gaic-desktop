@@ -11,7 +11,12 @@
   // slower web devices without
   // moving any model work back onto the UI thread.
   const WORKER_TIMEOUT_MS = 90 * 1000;
-  const MAX_INPUT_BYTES = 8 * 1024 * 1024;
+  const MAX_INPUT_BYTES = 50 * 1024 * 1024;
+  // The scan's working limit. A larger photo is decoded straight to a copy that
+  // fits it (only the shorter side is given, so EXIF rotation cannot distort
+  // it); photos within it are decoded at full size exactly as before.
+  const DIRECT_MAX_PIXELS = 24 * 1000 * 1000;
+  const DIRECT_MAX_DIMENSION = 8192;
   // iOS 15 lacks worker OffscreenCanvas, so its compatibility path must decode
   // on the UI thread. Keep that exceptional path much smaller than the normal
   // 8 MiB / 24 MP worker path and reject it from raw headers before new Image()
@@ -165,6 +170,17 @@
       }
     }
     return null;
+  }
+  function decodeResize(headerBytes) {
+    let geometry = null;
+    try { geometry = encodedImageGeometry(headerBytes); } catch (_) { geometry = null; }
+    if (!geometry || !(geometry.width > 0) || !(geometry.height > 0)) return null;
+    const { width, height } = geometry;
+    const scale = Math.min(1,
+      Math.sqrt(DIRECT_MAX_PIXELS / (width * height)),
+      DIRECT_MAX_DIMENSION / Math.max(width, height));
+    if (scale >= 1) return null;
+    return { shortSide: Math.max(1, Math.floor(Math.min(width, height) * scale)) };
   }
   function legacyGeometryAllowed(dimensions) {
     return !!(
@@ -908,6 +924,7 @@
     let bytes;
     try { bytes = await file.arrayBuffer(); }
     catch (_) { return { attempted: true, result: null }; }
+    const resize = decodeResize(new Uint8Array(bytes, 0, Math.min(bytes.byteLength, LEGACY_HEADER_BYTES)));
     const id = ++workerSequence;
     return new Promise((resolve) => {
       const expire = () => {
@@ -922,6 +939,7 @@
           id,
           kind: "detect",
           composite: !(file && file.aicheckScanHint === "video-frame"),
+          ...(resize ? { resize } : {}),
           bytes,
           type: String(file.type || "").slice(0, 100),
         }, [bytes]);

@@ -1018,6 +1018,8 @@ const LEAN_WEIGHTS = Object.freeze({
   declaresAiSource: 3.0,
   generatorParameters: 3.5,
   generatorTagged: 2.5,
+  // "gemini" and "imagen" are also ordinary words and names in captions.
+  generatorTaggedAmbiguous: 1.0,
   generativeHistoryStep: 1.5,
   knownGenerator: 1.5,
   validCaptureCredential: -2.5,
@@ -1071,13 +1073,17 @@ function validCuts(cuts) {
 }
 
 function leanResult(probabilityAi, cuts, authority, drivers, confidenceOverride) {
-  const p = Math.round(Math.max(0.01, Math.min(0.99, probabilityAi)) * 100) / 100;
+  // Lean and confidence use the exact probability; the displayed value is
+  // rounded afterwards and kept on the lean's side of 50%.
+  const p = Math.max(0.01, Math.min(0.99, probabilityAi));
   const lean = p >= 0.5 ? "ai" : "real";
   const confidence = confidenceOverride || (lean === "ai"
     ? (p >= cuts.aiHigh ? "high" : p >= cuts.aiMedium ? "medium" : "low")
     : (p <= cuts.realHigh ? "high" : p <= cuts.realMedium ? "medium" : "low"));
+  const shown = Math.round(p * 100) / 100;
   return Object.freeze({
-    lean, confidence, probabilityAi: p, authority,
+    lean, confidence, authority,
+    probabilityAi: lean === "ai" ? Math.max(0.5, shown) : Math.min(0.49, shown),
     drivers: Object.freeze(drivers.slice()),
   });
 }
@@ -1115,7 +1121,11 @@ export function decideImageLean(input) {
   let origin = 0;
   if (declarations.declaresAiSource === true) { origin = Math.max(origin, LEAN_WEIGHTS.declaresAiSource); drivers.push("ai-source-declared"); }
   if (!heif && metadata.generatorParameters === true) { origin = Math.max(origin, LEAN_WEIGHTS.generatorParameters); drivers.push("generator-parameters"); }
-  else if (!heif && metadata.generatorTagged === true) { origin = Math.max(origin, LEAN_WEIGHTS.generatorTagged); drivers.push("generator-named"); }
+  else if (!heif && metadata.generatorTagged === true) {
+    origin = Math.max(origin, metadata.generatorTagAmbiguous === true
+      ? LEAN_WEIGHTS.generatorTaggedAmbiguous : LEAN_WEIGHTS.generatorTagged);
+    drivers.push("generator-named");
+  }
   if (declarations.generativeHistoryStep) { origin = Math.max(origin, LEAN_WEIGHTS.generativeHistoryStep); drivers.push("generative-edit-step"); }
   const context = evidence.sourceContext && evidence.sourceContext.knownGenerator === true ? LEAN_WEIGHTS.knownGenerator : 0;
   if (context) drivers.push("generator-site");
@@ -1130,15 +1140,20 @@ export function decideImageLean(input) {
   }
   const px = pixel.available ? pixelLogLikelihoodRatio(evidence.pixel) : 0;
   if (pixel.available) drivers.push("pixel-model");
-  if (!pixel.available && !origin && !context && !capture) return null;
+  // Without a pixel reading, only an origin clue, a generator site, a signed
+  // capture credential, or corroborated camera metadata can carry a lean; a
+  // stray EXIF field alone is not enough to decide, so that is a failed check.
+  const strongCapture = capture <= LEAN_WEIGHTS.exifCorroborated;
+  if (!pixel.available && !origin && !context && !strongCapture) return null;
 
   let z = origin + context + capture + px;
-  // Asymmetry clamp: camera metadata can lower confidence, never flip a
-  // warning-band pixel reading to "real".
-  if (pixel.available && pixel.atElevatedBand && !(validated && sourceClass === "capture")) z = Math.max(z, 0.05);
+  // Asymmetry clamp: camera metadata or an untrusted capture credential can
+  // lower confidence, never flip a warning-band pixel reading to "real".
+  if (pixel.available && pixel.atElevatedBand) z = Math.max(z, 0.05);
   z = Math.max(-LEAN_LIMIT, Math.min(LEAN_LIMIT, z));
-  const onlyPixel = pixel.available && !origin && !context && !capture;
-  return leanResult(1 / (1 + Math.exp(-z)), onlyPixel ? cuts : DEFAULT_CONFIDENCE_CUTS, "", drivers);
+  // Measured cut points travel with the pixel reading and are kept when other
+  // clues move the probability; the defaults apply only without a pixel read.
+  return leanResult(1 / (1 + Math.exp(-z)), pixel.available ? cuts : DEFAULT_CONFIDENCE_CUTS, "", drivers);
 }
 
 export const PROVENANCE_TIERS = Object.freeze(TIER_ORDER.slice());

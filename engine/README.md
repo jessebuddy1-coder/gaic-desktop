@@ -1,102 +1,133 @@
-# GAIC checker engine v2 — accuracy update for every platform
+# GAIC checker engine update — for every platform
 
 This folder holds an accuracy update to the GAIC checker engine, measured
 against the engine that shipped in GAIC 2.4.0.
 
 Every GAIC platform runs the same web runtime: gaicheck.com, the iOS and
 Android apps (Capacitor), the Windows and macOS desktop apps (Electron serves
-the runtime from `resources/app`), and the Chrome extension. So a single set
-of runtime files carries the update to all of them.
+the runtime from `resources/app`), and the Chrome extension. So a single set of
+runtime files carries the update to all of them. Every check still runs on the
+device.
 
-Nothing else changes. The UI, verdict wording, result format, quotas,
-privacy behavior, the bundled image model file, and the cloud path all stay
-the same, and every check still runs on the device. The only other
-user-visible edits are the in-progress scanning panel (below), the result
-explanations, which describe what was measured, and one support-page
-sentence (listed below).
+**What the owner asked for, and what this update does:**
+
+1. **Accuracy.** A new image decision head, and a calibrated text decision.
+2. **No "inconclusive" results.** Every completed check ends with a lean and a
+   confidence level.
+3. **A scanning animation that is nice and intriguing.**
+4. **Nothing else about the app's look changes.**
+5. **Photos over 8 MB are accepted.**
 
 ## What changed
 
-| Area | Before (2.4.0) | After (engine v2) |
+| Area | Before (2.4.0) | After |
 | --- | --- | --- |
-| **Text AI check** | 4 hand-set cues, score clamped 15–85 | trained on-device model (56 writing measurements + 2,500-term vocabulary), scored per passage, with an explanation of what drove it; same 15–85 scale, same three verdicts |
-| **Photo / screenshot scan** | max over 8 fixed crops of the whole frame, including the phone UI, page, or player bars around a picture | ordinary photos: **unchanged**, the same 8-crop scan byte-for-byte. Screenshots and letterboxed frames: the scanner also locates the picture inside the interface and reads it at the scale the model was trained on (scan v6), and the higher of the two readings is used; same model file |
-| **Video scan** | 8 evenly spaced frames, blank or fade frames scored as-is | same 8 frames and the same per-frame scan, but a blank or fade frame is re-sampled nearby within its slot instead of being scored |
-| **Screen scan** | 8 frames at 1024 px | 8 frames at up to 1600 px so small pictures keep detail; blank start frames are skipped; unchanged frames reuse the previous score |
-| **Scanning panel** | a fixed animation with timed narration, some of it for checks that did not run (a screen check "looked for signed creation history"); video and screen showed two progress bars | a viewfinder showing the person's own photo, sampled frame, or text: the picture develops from grey behind a sweeping beam, a bracket box locks onto each view the model is actually reading, a "picture" box marks a picture found inside a screenshot, and the narration follows real pipeline events in order. One progress bar fed by real progress; a still design for reduced motion. Everything outside the panel is pixel-identical |
-| **Rewriting (writing assist)** | 26/77 reviewed cases correct; could corrupt text (`an additional` → `an more`, `U.S.A` → `U. S. A`, flattened indentation, edited quotes) | 77/77; untouched text stays byte-identical; quotes, code, URLs, and emails are protected; verbs keep their tense; a/an and sentence capitals are fixed at edit sites |
+| **Every result** | photos below the 95/100 band: "Model result is inconclusive", "No rating"; video and screen: "Sampled frames are inconclusive"; text: a pattern band | a **lean** (AI-generated / real, or AI-written / human-written), a **confidence level** (high / medium / low, each measured on held-out data), and an **AI likelihood**, e.g. "Likely AI-generated — high confidence · AI likelihood: 93%". The evidence read stays as the "Technical read" line. Genuine failures (too little text, unreadable file, quota) stay errors |
+| **Photo detection** | the model's own last layer, max over 8 crops; caught about 1 in 5 images from 2025–2026 generators | the same network and weights, read by a new **decision head** trained on GPT-Image, Nano Banana, Midjourney, Seedream and others, and on real photos, art, charts and screenshots. On held-out generator families: **68%** of AI images called AI, 4% of real images called AI (2.4.0 at the same false-lean rate: 28%) |
+| **Screenshots** | 3% of AI screenshots flagged | **70%** called AI; 4% of real screenshots called AI |
+| **Text** | 4 hand-set cues | the trained model (56 writing measurements + 2,500-term vocabulary); lean threshold set so ≤5% of human writing from unseen sources leans AI; high-confidence AI leans right 98.5–99.8% of the time |
+| **Video / screen** | 8 frames, warning only at ≥95 | the same 8 frames read by the decision head; the lean follows the median frame, with a flatter, more cautious calibration (see RESULTS) |
+| **Large photos** | 8 MB / 24 MP cap | **50 MB / 120 MP**; photos above 24 MP are decoded to a downscaled copy, and smaller photos are scanned exactly as before |
+| **Scanning panel** | fixed animation with timed narration, some of it for checks that did not run | a live viewfinder: the person's own photo develops from grey behind a sweeping beam, bracket boxes lock onto each view the model actually reads, a "picture" box marks a picture found in a screenshot, sampled video/screen frames appear as they are read, and text shows an excerpt with its real passage and word counts; one real progress bar; a still design for reduced motion. Everything outside the panel is pixel-identical |
+| **Rewriting** | 26/77 reviewed cases; could corrupt text | 77/77; untouched text stays byte-identical |
 
-Measured results are in [RESULTS.md](RESULTS.md). The text model card is
-[runtime/models/GAIC-TEXT-MODEL.md](runtime/models/GAIC-TEXT-MODEL.md), and
-the image scan changes are recorded in
+Measured results are in [RESULTS.md](RESULTS.md). The model cards are
+[runtime/models/GAIC-TEXT-MODEL.md](runtime/models/GAIC-TEXT-MODEL.md) and
 [runtime/models/AICHECK-IMAGE-MODEL.md](runtime/models/AICHECK-IMAGE-MODEL.md).
 
 ## Files
 
 `runtime/` mirrors the web runtime root, so each file drops in at the same
-relative path.
+relative path. `runtime/FILES.txt` lists them.
 
 | File | Change |
 | --- | --- |
-| `text-detector.js` | **new**: text engine and embedded weights (~75 KB) |
-| `ai-detector.html` | one added line: `<script src="text-detector.js"></script>` before `app.js`; the scanning panel gains a viewfinder layer, a flash layer, and a visible/announced pair of stage spans |
-| `app.js` | text check calls the new engine, falling back to the old heuristic if it is missing; explanation for screenshot results; blank-frame and screen-frame handling; video frames are marked to keep the 2.4.0 scan; the scanning viewfinder (`setAnalyzing`/`finishAnalyzing`, an event-driven stage queue, and one-line hooks in the pipeline) |
-| `detector-worker.js` | adds the scan v6 composite-frame reading; the v5 functions are unchanged and pinned by tests; progress messages (phase, position, and view rectangle) before each view is read |
-| `onnx-detector.js` | the same composite-frame reading for the iOS 15 compatibility path; optional `detect(file, { onProgress })`, where progress never settles a request |
-| `styles.css` | only the `.analyzing*` panel rules: the viewfinder's compositor-only animations and their reduced-motion states |
-| `writing-assist.js` | rewriter v2 (same API and modes) |
-| `support.html` | one sentence: the text tool is now described as a trained pattern model, not a "hand-built heuristic" |
-| `models/GAIC-TEXT-MODEL.md` | **new** model card |
-| `models/AICHECK-IMAGE-MODEL.md` | scan v6 section and results |
+| `models/aicheck-ai-image-v3-fp16.onnx` | **new** (43 MB): the v2 network and weights, plus a `features` output for the decision head |
+| `image-head.js` | **new**: the image decision head and its calibration tables (28 KB) |
+| `model-config.js` | points at the v3 model file |
+| `text-detector.js` | **new**: text engine, weights, and the lean/confidence decision |
+| `app.js` | the decisive result layer (lean, confidence, AI likelihood) for text, photo, screenshot, video, and screen results; the text engine; the scanning viewfinder; blank-frame and screen-frame handling; the 50 MB / 120 MP photo limits |
+| `provenance-verdict.mjs` | `decideImageLean`: combines the pixel reading with Content Credential and metadata clues; signed AI-origin and trusted capture credentials decide outright; undecided headlines renamed |
+| `detector-worker.js` | the decision head (per view, averaged, calibrated per scan kind); scan v6 picture reading; progress messages for the viewfinder; downscaled decoding above 24 MP. The 2.4.0 v5 functions are unchanged and pinned by tests |
+| `onnx-detector.js` | the same for the iOS 15 path; `detect(file, { onProgress })`; the large-photo decode hint |
+| `ai-detector.html`, `styles.css` | the viewfinder layers and `.analyzing*` rules only; the score placeholder reads "Not scored" |
+| `is-this-ai.js`, `is-this-ai.html` | the quick-check page gives the same lean and confidence and accepts the same photo sizes |
+| `native.js` | one sentence about converted HEIC photos |
+| `writing-assist.js` | rewriter v2 |
+| `support.html` | the accuracy section now states the measured leans and confidence levels |
+| `models/*.md` | model cards |
 
-`patches/gaic-engine-v2.patch` holds the same change as a reviewable
-unified diff against the 2.4.0 runtime.
+`patches/gaic-engine-v2.patch` holds the text files as a reviewable unified
+diff against the 2.4.0 runtime. Binary files are not in the patch:
+`apply-engine.sh` copies the v3 model file.
 
 ## Shipping it to every platform
 
-1. In the GAIC source repository (the one that builds `desktop-build-manifest.json`),
-   apply the update to the web runtime folder:
+1. In the GAIC source repository (the one that builds
+   `desktop-build-manifest.json`), apply the update to the web runtime folder:
 
    ```sh
    engine/tools/apply-engine.sh <source-repo>/<web-runtime-folder>
    # or, if those files have moved on since 2.4.0:
    git -C <source-repo> apply -3 --directory=<web-runtime-folder> <this-repo>/engine/patches/gaic-engine-v2.patch
+   cp engine/runtime/models/aicheck-ai-image-v3-fp16.onnx <source-repo>/<web-runtime-folder>/models/
    ```
 
    The script refuses to overwrite files that changed after 2.4.0, then runs
    the engine tests against the target.
-2. Add `text-detector.js` to any runtime file list your build scripts keep,
-   such as the desktop build manifest, the extension's file list, or a
-   Capacitor copy step.
-3. Run your normal release for each platform:
+2. Add `text-detector.js`, `image-head.js`, and
+   `models/aicheck-ai-image-v3-fp16.onnx` to any runtime file list your build
+   keeps: the desktop build manifest, the extension's file list, the Capacitor
+   copy step, and any service-worker precache. The v2 model file is no longer
+   loaded and can be dropped from bundles.
+3. Optional: raise the native share-sheet image cap to match. It is 8 MB in
+   `AICheckEntryPlugin` (Android) and the iOS App Intent, and privacy.html
+   describes it. The in-app picker, the web page, and the desktop app already
+   take 50 MB.
+4. Run your normal release for each platform:
    * **Web:** deploy to Vercel.
    * **iOS and Android:** `npx cap sync`, then archive and submit.
    * **Windows and macOS:** run the electron-builder release, which regenerates
      `desktop-build-manifest.json`, then upload the installers to this
      repository's Releases.
    * **Chrome extension:** rebuild it with the updated worker files.
-4. Optionally, update the terms, which still call the text tool "an
-   unvalidated, English-focused pattern heuristic". The wording is still
-   accurate, because the tool is still unvalidated as an authorship detector,
-   so the terms version date was left alone.
+5. Decide on the terms. They still call the text tool "an unvalidated,
+   English-focused pattern heuristic" and disclaim correctness. That is still
+   true, but results now state a lean with a measured confidence, so review
+   the wording before release.
 
 ## Tests
 
 ```sh
-GAIC_RUNTIME=engine/runtime node --test engine/test/*.test.mjs
+GAIC_RUNTIME=<full runtime folder> node --test engine/test/*.test.mjs
 ```
 
-The tests need no dependencies. They cover:
+Against `engine/runtime` alone, the tests that need unchanged runtime files
+(for example `container-provenance.mjs`) are skipped. The tests need no
+dependencies. They cover:
 
-* the rewriting benchmark and rewriter invariants;
-* the text model's bands, determinism, evasion hygiene, and `app.js`
-  fallback;
-* picture localization on synthetic screenshots and letterboxed frames;
-* that the 2.4.0 photo-scan functions are byte-for-byte unchanged (source hashes pinned);
-* exact parity of the v6 center view with the reviewed v5 official view;
-* that the worker and the iOS 15 path share one composite-frame plan;
-* the video and screen sampling contract;
-* that the on-device-only block contains no network calls;
-* the scanning viewfinder: progress never resolves a request, stages keep
-  their order and dwell, preview URLs are revoked, no preview or rectangle
-  reaches a result, and every animation has a reduced-motion state.
+* **Decisions:**
+  * every scored text gets a lean and a confidence;
+  * the lean and the displayed likelihood never disagree at 50%;
+  * signed credentials decide;
+  * weak metadata alone never decides, and cannot flip a warning-band pixel
+    reading;
+  * no shipped result wording is undecided.
+* **Image worker, end to end:**
+  * photo, located-picture screenshot, video frame, and missing-head fallback
+    through the real message handler;
+  * large photos decode downscaled;
+  * the shipped head and calibration are complete and monotone.
+* **Existing guarantees:**
+  * the rewriting benchmark;
+  * the text model's determinism and evasion hygiene;
+  * picture localization;
+  * the pinned 2.4.0 photo-scan functions;
+  * the video and screen sampling contract;
+  * no network calls in the on-device-only block.
+* **Scanning viewfinder:**
+  * progress never resolves a request;
+  * stage order and dwell;
+  * preview URLs are revoked;
+  * no preview or rectangle reaches a result;
+  * every animation has a reduced-motion state.
