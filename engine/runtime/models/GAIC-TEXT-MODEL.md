@@ -103,6 +103,43 @@ logistic margin, or blended with it) was tested under the same protocol and
 did not beat this model on out-of-corpus AUC by the required margin, so the
 logistic model stays.
 
+## Mixed documents and disguise tricks
+
+**A machine-like section inside human writing.** A document score averages
+every passage, so a few paragraphs pasted from an AI tool into an essay barely
+move it. When a document leans human-written, the engine also scores
+sentence-aligned windows of about 200 words, started every 50 words, and
+reports a section when one reaches the model's high band (log-odds 2.47). The
+section's location is the run of sentences whose covering windows average at
+least 1.5. The app names the words and quotes where the section starts; the
+lean is unchanged. Measured on held-out corpora (DetectRL, the detector-bias
+essays, and ArguGPT; `eval/mixed_text_eval.mjs`,
+`eval/results/text_mixed_disguise.json`):
+
+| | Section reported |
+| --- | ---: |
+| Human documents on their own | 0.0% |
+| 3, 6, or 10 human documents joined into one long text | 0.3–0.5% |
+
+| AI excerpt pasted between three human documents | Document leans AI | Leans AI **or section reported** |
+| --- | ---: | ---: |
+| about 150 words | 0.0% | 6% |
+| about 250 words | 0.2% | **29%** |
+| about 400 words | 3.0% | **54%** |
+
+97% of the words in a reported section were the pasted text, the quoted opening
+was inside it 90% of the time, and a report covered about 60% of the pasted
+section.
+
+**Hidden characters and look-alike letters.** Invisible characters inside
+words and letters swapped for look-alikes from other alphabets are common ways
+to slip text past detectors. The engine removes both before measuring, so they
+cannot move the score, and now also counts them. With three or more, the app
+says so. Counting is conservative: soft hyphens, emoji joiners, and Greek
+letters in science notation (NF-κB, α-helix) never count. RAID's zero-width
+and homoglyph attacks were noticed in 100% and 99.8% of texts. Their plain
+versions and the 3,401 held-out human documents triggered it 0% of the time.
+
 ## Bands (technical read)
 
 The older pattern-signal scale maps the logit piecewise-linearly so that

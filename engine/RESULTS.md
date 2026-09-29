@@ -131,6 +131,25 @@ alternative did not beat it on unseen corpora, so the simpler model stays.
 | AI, medium | 90% | 96% |
 | Human, medium | 81% | 93% |
 
+**Pasted AI sections.** When a document leans human-written, the app also
+checks stretches of about 200 words and reports one that reads strongly
+machine-written, naming its words and opening. On held-out corpora:
+
+| Human writing | Section reported |
+| --- | ---: |
+| Documents on their own | 0.0% |
+| 3, 6, or 10 documents joined into one long text | 0.3–0.5% |
+
+| AI words pasted into human writing | Document leans AI | Leans AI or section reported |
+| --- | ---: | ---: |
+| About 250 | 0.2% | **29%** |
+| About 400 | 3.0% | **54%** |
+
+**Disguise tricks.** Texts with invisible characters inside words or
+look-alike letters from other alphabets now get a notice. It fired on 100% of
+RAID's zero-width attacks and 99.8% of its homoglyph attacks, and on none of
+3,401 held-out human documents. The score already ignored these characters.
+
 Against 2.4.0's heuristic, on the held-out DetectRL corpus:
 
 | | 2.4.0 | Updated |

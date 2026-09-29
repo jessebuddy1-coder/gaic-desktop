@@ -1,0 +1,65 @@
+{
+ "falseAlarms": {
+  "human x1": {
+   "n": 3401,
+   "leanAi": 0.02881505439576595,
+   "sectionReported": 0
+  },
+  "human x3": {
+   "n": 1000,
+   "leanAi": 0.002,
+   "sectionReported": 0.004
+  },
+  "human x6": {
+   "n": 1000,
+   "leanAi": 0,
+   "sectionReported": 0.005
+  },
+  "human x10": {
+   "n": 1000,
+   "leanAi": 0,
+   "sectionReported": 0.003
+  }
+ },
+ "catches": {
+  "150 words": {
+   "n": 1500,
+   "documentLean": 0,
+   "leanOrSection": 0.06
+  },
+  "250 words": {
+   "n": 1500,
+   "documentLean": 0.002,
+   "leanOrSection": 0.2866666666666667
+  },
+  "400 words": {
+   "n": 1500,
+   "documentLean": 0.03,
+   "leanOrSection": 0.5406666666666666
+  }
+ },
+ "disguise": {
+  "attack:homoglyph": {
+   "n": 637,
+   "noticed": 0.9984301412872841
+  },
+  "attack:zero_width_space": {
+   "n": 677,
+   "noticed": 1
+  },
+  "plain": {
+   "n": 602,
+   "noticed": 0
+  },
+  "held-out human documents": {
+   "n": 3401,
+   "noticed": 0.00029403116730373417
+  }
+ },
+ "location": {
+  "reported": 1283,
+  "precision": 0.9699777890960906,
+  "recall": 0.592763848087374,
+  "openingInside": 0.9033515198752923
+ }
+}

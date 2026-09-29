@@ -89,3 +89,11 @@ The scan-v6 results above used the unchanged v2 model file.
 `textcal.py` sets the lean threshold (≤5% of human documents leaning AI,
 leave-one-corpus-out), the displayed-likelihood knots, and the confidence cuts;
 `build_text_engine.py` embeds them in `text-detector.js`.
+
+`mixed_text_eval.mjs` measures the machine-like section report and the
+disguise-trick notice with the shipped `text-detector.js` on held-out corpora:
+false reports on human documents alone and joined into long texts, catches
+when AI excerpts of about 150, 250, and 400 words are pasted between human
+documents, how well the reported words line up with the pasted text, and the
+notice on RAID's zero-width and homoglyph attacks. It writes
+`results/text_mixed_disguise.json`.

@@ -4,7 +4,7 @@ Desktop builds of GAIC (Get AI Checked) — the on-device AI content checker. ht
 
 * Every check now ends with a lean (AI or real; AI-written or human-written for text), a confidence level, and an AI likelihood, instead of "inconclusive".
 * Photos: on AI generators it was never trained on, the new checker called 67% of AI images AI, where 2.4.0 flagged about 1 in 5. About 4% of real images leaned AI. Screenshots of AI images: 69% called AI (2.4.0: 3%).
-* Text: a trained on-device model replaces the old pattern rules.
+* Text: a trained on-device model replaces the old pattern rules. It also points out a section that reads machine-written inside writing that otherwise reads human (for example a pasted AI paragraph), and warns when a text contains hidden characters or look-alike letters used to fool AI detectors.
 * Photos up to 50 MB and 120 megapixels (was 8 MB).
 * A new scanning animation that shows what the checker is looking at.
 * Rewriting suggestions never change text outside the words they fix.

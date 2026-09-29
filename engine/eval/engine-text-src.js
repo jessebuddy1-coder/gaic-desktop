@@ -517,6 +517,122 @@
     return { logit, parts, contributions, measured, words: measured.words.length };
   }
 
+  // ---------- mixed documents ----------
+  // A section pasted from an AI tool into human writing is diluted in the
+  // document score and in the fixed 260-word passages. Sentence-aligned
+  // windows of about 200 words, started every 50 words, are scored on their
+  // own. On held-out human writing (corpora the model never trained on) a
+  // window at or above SECTION_FLAG appeared in 0% of single documents and in
+  // 0.3-0.5% of long multi-document texts; with an AI section of about 250 or
+  // 400 words pasted into human writing, lean or section caught 29% and 54% of
+  // them, where the document lean alone caught 0.2% and 3%
+  // (eval/mixed_text_eval.mjs, results/text_mixed_disguise.json).
+  const SECTION_WORDS = 200;
+  const SECTION_STEP = 50;
+  const SECTION_MAX_WINDOWS = 200;
+  const SECTION_FLAG = 2.47;
+  // Where the section is: sentences whose covering windows average at least
+  // SECTION_CORE. On the same mixed documents 97% of the words reported this
+  // way were the pasted AI text and the quoted opening fell inside it 90% of
+  // the time; the report covers about 60% of the pasted section on average.
+  const SECTION_CORE = 1.5;
+
+  function machineLikeSection(text) {
+    const sentences = splitSentences(text);
+    const counts = sentences.map((sentence) => (sentence.match(TOKEN_RE) || []).length);
+    const total = counts.reduce((sum, n) => sum + n, 0);
+    if (total < SECTION_WORDS * 1.5) return null;
+    const step = Math.max(SECTION_STEP, Math.ceil(total / SECTION_MAX_WINDOWS));
+    const flagged = [], windows = [];
+    let best = null;
+    let before = 0, next = 0;
+    for (let start = 0; start < sentences.length; start += 1) {
+      if (before >= next) {
+        next = before + step;
+        let words = 0, end = start;
+        while (end < sentences.length && words < SECTION_WORDS) { words += counts[end]; end += 1; }
+        if (words < SECTION_WORDS * 0.75) break;
+        const logit = chunkLogit(sentences.slice(start, end).join(" ")).logit;
+        const win = { logit, start, end, first: before + 1, last: before + words };
+        windows.push(win);
+        if (logit >= SECTION_FLAG) flagged.push(win);
+        if (!best || logit > best.logit) best = win;
+      }
+      before += counts[start];
+    }
+    if (!flagged.length) return null;
+    // Overlapping flagged windows are one section; report the one holding the
+    // strongest window, and how many separate sections there were.
+    const spans = [];
+    for (const win of flagged) {
+      const open = spans[spans.length - 1];
+      if (open && win.start < open.end) {
+        open.end = Math.max(open.end, win.end);
+        open.last = Math.max(open.last, win.last);
+        open.windows.push(win);
+      } else {
+        spans.push({ start: win.start, end: win.end, first: win.first, last: win.last, windows: [win] });
+      }
+    }
+    const top = spans.find((span) => span.windows.indexOf(best) !== -1) || spans[0];
+    // Narrow the span to its core: each sentence is scored by the mean logit of
+    // every window that covers it, and the run around the strongest sentence
+    // is kept while it stays at or above SECTION_CORE.
+    const sum = new Array(sentences.length).fill(0), covered = new Array(sentences.length).fill(0);
+    for (const win of windows) {
+      for (let i = win.start; i < win.end; i += 1) { sum[i] += win.logit; covered[i] += 1; }
+    }
+    const score = (i) => (covered[i] ? sum[i] / covered[i] : -Infinity);
+    let peak = top.start;
+    for (let i = top.start; i < top.end; i += 1) if (score(i) > score(peak)) peak = i;
+    let first = peak, last = peak;
+    while (first > top.start && score(first - 1) >= SECTION_CORE) first -= 1;
+    while (last + 1 < top.end && score(last + 1) >= SECTION_CORE) last += 1;
+    let wordsBefore = 0;
+    for (let i = 0; i < first; i += 1) wordsBefore += counts[i];
+    let coreWords = 0;
+    for (let i = first; i <= last; i += 1) coreWords += counts[i];
+    return Object.freeze({
+      firstWord: wordsBefore + 1,
+      lastWord: wordsBefore + coreWords,
+      totalWords: total,
+      opening: sentences[first].split(/\s+/).slice(0, 12).join(" ").slice(0, 120),
+      sections: spans.length,
+    });
+  }
+
+  // ---------- disguise tricks ----------
+  // Invisible characters inside words and letters swapped for look-alikes from
+  // other alphabets are common ways to slip text past detectors. normalize()
+  // removes both before anything is measured, so they cannot move the score;
+  // this only counts them so the result can say they were there. Counted
+  // conservatively: an invisible character only between two letters or digits
+  // (never soft hyphens, which copied web text carries legitimately), a
+  // look-alike letter only with a Latin letter on both sides (so "NF-κB" or
+  // "α-helix" never count), and bidirectional controls anywhere.
+  const HIDDEN_RUN_RE = /[​-‍⁠-⁤᠎﻿]+/g;
+  const BIDI_CONTROL_RE = /[‪-‮⁦-⁩]/g;
+  const ALNUM_RE = /[A-Za-z0-9]/;
+  const LATIN_LETTER_RE = /[A-Za-z]/;
+  const DISGUISE_NOTICE_MIN = 3;
+
+  function disguiseCounts(input) {
+    const raw = String(input || "");
+    let hidden = 0, lookalike = 0, match;
+    HIDDEN_RUN_RE.lastIndex = 0;
+    while ((match = HIDDEN_RUN_RE.exec(raw))) {
+      const before = raw[match.index - 1] || "", after = raw[match.index + match[0].length] || "";
+      if (ALNUM_RE.test(before) && ALNUM_RE.test(after)) hidden += match[0].length;
+    }
+    hidden += (raw.match(BIDI_CONTROL_RE) || []).length;
+    for (let i = 1; i < raw.length - 1; i += 1) {
+      if (HOMOGLYPHS[raw[i]] && LATIN_LETTER_RE.test(raw[i - 1]) && LATIN_LETTER_RE.test(raw[i + 1])) lookalike += 1;
+    }
+    return hidden + lookalike >= DISGUISE_NOTICE_MIN
+      ? Object.freeze({ hiddenCharacters: hidden, lookalikeLetters: lookalike })
+      : null;
+  }
+
   function scoreText(input) {
     if (!MODEL) return null;
     const text = normalize(input);
@@ -608,6 +724,11 @@
       aiSignals: Object.freeze(aiSignals),
       humanSignals: Object.freeze(humanSignals),
       wordChoice: lexicalLean > 0.25 ? "ai" : lexicalLean < -0.25 ? "human" : "neutral",
+      // Only when the document as a whole leans human: a strongly
+      // machine-like stretch the document score averaged away.
+      machineLikeSection: MODEL.decision && scored.logit < MODEL.decision.threshold
+        ? machineLikeSection(scored.text) : null,
+      disguise: disguiseCounts(input),
     });
   }
 
@@ -624,6 +745,8 @@
     chunkText,
     setModel,
     scoreText,
+    machineLikeSection,
+    disguiseCounts,
     get model() { return MODEL; },
   });
 })(typeof window !== "undefined" ? window : globalThis);

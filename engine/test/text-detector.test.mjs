@@ -51,6 +51,42 @@ test("scores are deterministic and banded", () => {
   assert.ok(m.score >= 66 && m.score <= 85);
 });
 
+test("a machine-like section inside human writing is reported with where it starts", () => {
+  const mixed = [HUMAN, HUMAN, MACHINE, HUMAN, HUMAN].join("\n\n");
+  const a = E.analyze(mixed);
+  assert.equal(a.decision.lean, "human", "the document as a whole leans human");
+  const s = a.machineLikeSection;
+  assert.ok(s, "the pasted section is reported");
+  const start = [HUMAN, HUMAN].join(" ").split(/\s+/).filter(Boolean).length + 1;
+  assert.ok(s.firstWord >= start - 5 && s.firstWord <= start + 60, `reported from word ${s.firstWord}, pasted at ${start}`);
+  assert.ok(s.lastWord > s.firstWord && s.lastWord <= s.totalWords);
+  assert.ok(s.opening.startsWith("In today's fast-paced world"), s.opening);
+  assert.equal(s.sections, 1);
+  // Nothing to report for human writing alone, for text too short to window,
+  // or when the whole document already leans AI.
+  assert.equal(E.analyze([HUMAN, HUMAN, HUMAN, HUMAN].join("\n\n")).machineLikeSection, null);
+  assert.equal(E.analyze(HUMAN).machineLikeSection, null);
+  assert.equal(E.analyze([MACHINE, MACHINE, MACHINE].join("\n\n")).machineLikeSection, null);
+});
+
+test("hidden characters and look-alike letters are counted, never ordinary text", () => {
+  const disguised = MACHINE.replace(/a/g, "а").replace(/(\w)(\w)/g, "$1\u200b$2");
+  const d = E.disguiseCounts(disguised);
+  assert.ok(d && d.hiddenCharacters > 50 && d.lookalikeLetters > 20, JSON.stringify(d));
+  assert.deepEqual({ ...E.analyze(disguised).disguise }, { ...d });
+  assert.equal(E.disguiseCounts(HUMAN), null);
+  assert.equal(E.disguiseCounts(MACHINE), null);
+  // Legitimate uses: Greek letters in science notation, soft hyphens and
+  // zero-width joiners from copied web text, emoji sequences, a byte-order mark.
+  const legit = "NF-\u03baB signalling and the \u03b1-helix were measured in \u03bcm. " +
+    "Co\u00adoperation and re\u00adsearch continued. Family: \ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67. " +
+    "\ufeffThe report \u2014 \u201cquoted\u201d \u2014 ends here.";
+  assert.equal(E.disguiseCounts(legit), null);
+  // Two tricks are not enough for a notice; three are.
+  assert.equal(E.disguiseCounts("wo\u200brd and ca\u200bt"), null);
+  assert.ok(E.disguiseCounts("wo\u200brd and ca\u200bt and d\u043eg"));
+});
+
 test("zero-width characters and look-alike letters do not change the score", () => {
   const disguised = MACHINE
     .replace(/a/g, "а")          // Cyrillic a

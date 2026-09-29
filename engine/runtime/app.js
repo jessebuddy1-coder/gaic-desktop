@@ -541,6 +541,13 @@
     if (list.length === 1) return list[0];
     return list.slice(0, -1).join(", ") + " and " + list[list.length - 1];
   }
+  function disguiseSummary(disguise) {
+    const bits = [];
+    if (disguise.hiddenCharacters) bits.push(disguise.hiddenCharacters.toLocaleString() + " invisible character" + (disguise.hiddenCharacters === 1 ? "" : "s") + " inside words");
+    if (disguise.lookalikeLetters) bits.push(disguise.lookalikeLetters.toLocaleString() + " look-alike letter" + (disguise.lookalikeLetters === 1 ? "" : "s") + " from other alphabets");
+    return "this text contains " + bits.join(" and ");
+  }
+
   function analyzeTextWithEngine(t) {
     const engine = global.AICheckTextEngine;
     if (!engine || !engine.model || typeof engine.analyze !== "function") return null;
@@ -559,8 +566,21 @@
       parts.push("Overall word choice leaned " + (result.wordChoice === "ai" ? "machine-like" : "human-like") + ".");
     }
     parts.push("How sure: on public research collections it never trained on, about 3–5% of human-written documents leaned AI, and it caught about 64–79% of AI-written documents. High-confidence AI leans were right about 98% of the time. It is English-focused and can be unfair to non-native, translated, academic, formulaic, or heavily edited writing.");
+    const section = result.machineLikeSection || null;
+    const disguise = result.disguise || null;
+    if (section) {
+      parts.push("Mixed writing: words " + section.firstWord.toLocaleString() + "–" + section.lastWord.toLocaleString() +
+        " of " + section.totalWords.toLocaleString() + " (starting \u201c" + section.opening + "\u2026\u201d) read strongly machine-like," +
+        " although the text as a whole leans human-written. A section pasted from an AI tool reads this way" +
+        (section.sections > 1 ? "; " + (section.sections - 1) + " other section" + (section.sections === 2 ? "" : "s") + " read the same way." : "."));
+    }
+    if (disguise) {
+      parts.push("Hidden characters: " + disguiseSummary(disguise) + ". These are sometimes added to slip text past AI detectors;" +
+        " GAIC read the text without them, so they did not change this result.");
+    }
     const out = { kind: "text", score: result.score, metricLabel: "Text-pattern signal",
       verdict: TEXT_BAND_VERDICTS[result.band], explain: parts.join(" "),
+      ...(section ? { textSection: section } : {}), ...(disguise ? { textDisguise: disguise } : {}),
       textModel: String(result.version || "").slice(0, 80),
       guidance: "Use this as a strong clue, not proof. If it matters, check drafts, citations, document history, and the author's explanation." };
     applyDecision(out, result.decision);
@@ -3203,7 +3223,16 @@
       return "The pixel scan stayed below GAIC's AI warning bands.";
     }
     if (out.kind === "text") {
-      return "GAIC compared the writing with patterns common in AI-generated and human-written text. Human writing can share some of those patterns.";
+      const notes = [];
+      if (out.textSection) {
+        notes.push("One section (words " + out.textSection.firstWord.toLocaleString() + "–" + out.textSection.lastWord.toLocaleString() +
+          ", starting \u201c" + out.textSection.opening + "\u2026\u201d) reads strongly machine-written, even though the text as a whole leans human-written.");
+      }
+      if (out.textDisguise) {
+        notes.push("It also contains hidden characters or look-alike letters that are sometimes added to fool AI detectors; GAIC read the text without them.");
+      }
+      return notes.length ? notes.join(" ")
+        : "GAIC compared the writing with patterns common in AI-generated and human-written text. Human writing can share some of those patterns.";
     }
     if (out.kind === "error") {
       return out.explain || "GAIC could not complete this scan.";

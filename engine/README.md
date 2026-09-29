@@ -26,6 +26,7 @@ device.
 | **Photo detection** | the model's own last layer, max over 8 crops; caught about 1 in 5 images from 2025–2026 generators | the same network and weights, read by a new **decision head** trained on GPT-Image, Nano Banana, Midjourney, Seedream and others, and on real photos, art, charts and screenshots. On held-out generator families: **67%** of AI images called AI, 4% of real images called AI (2.4.0 at the same false-lean rate: 28%) |
 | **Screenshots** | 3% of AI screenshots flagged | **69%** called AI; 3% of real screenshots called AI |
 | **Text** | 4 hand-set cues | the trained model (56 writing measurements + 2,500-term vocabulary); lean threshold set so ≤5% of human writing from unseen sources leans AI; high-confidence AI leans right 98.5–99.8% of the time |
+| **Mixed and disguised text** | a pasted AI section barely moved a human document's score; hidden characters were silently ignored | a human-leaning text also names a section that reads strongly machine-written (29% of 250-word and 54% of 400-word AI pastes found, ≤0.5% false reports); invisible characters and look-alike letters get a notice |
 | **Video / screen** | 8 frames, warning only at ≥95 | the same 8 frames read by the decision head; the lean follows the median frame, with a flatter, more cautious calibration (see RESULTS) |
 | **Large photos** | 8 MB / 24 MP cap | **50 MB / 120 MP**; photos above 24 MP are decoded to a downscaled copy, and smaller photos are scanned exactly as before |
 | **Scanning panel** | fixed animation with timed narration, some of it for checks that did not run | a live viewfinder: the person's own photo develops from grey behind a sweeping beam, bracket boxes lock onto each view the model actually reads, a "picture" box marks a picture found in a screenshot, sampled video/screen frames appear as they are read, and text shows an excerpt with its real passage and word counts; one real progress bar; a still design for reduced motion. Everything outside the panel is pixel-identical |
@@ -45,7 +46,7 @@ relative path. `runtime/FILES.txt` lists them.
 | `models/aicheck-ai-image-v3-fp16.onnx` | **new** (43 MB): the v2 network and weights, plus a `features` output for the decision head |
 | `image-head.js` | **new**: the image decision head and its calibration tables (28 KB) |
 | `model-config.js` | points at the v3 model file |
-| `text-detector.js` | **new**: text engine, weights, and the lean/confidence decision |
+| `text-detector.js` | **new**: text engine, weights, and the lean/confidence decision; machine-like section and disguise-trick checks |
 | `app.js` | the decisive result layer (lean, confidence, AI likelihood) for text, photo, screenshot, video, and screen results; the text engine; the scanning viewfinder; blank-frame and screen-frame handling; the 50 MB / 120 MP photo limits |
 | `provenance-verdict.mjs` | `decideImageLean`: combines the pixel reading with Content Credential and metadata clues; signed AI-origin and trusted capture credentials decide outright; undecided headlines renamed |
 | `detector-worker.js` | the decision head (per view, averaged, calibrated per scan kind); scan v6 picture reading; progress messages for the viewfinder; downscaled decoding above 24 MP. The 2.4.0 v5 functions are unchanged and pinned by tests |
