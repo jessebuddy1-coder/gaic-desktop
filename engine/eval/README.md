@@ -33,6 +33,7 @@ original locations. Per-item scores and summaries are in `results/`.
 | 7. Bands | `bands.py` | band edges from out-of-fold scores |
 | 8. Build | `build_text_engine.py` | embeds the weights in `text-detector.js` |
 | 9. Report | `text_eval_final.mjs`, `text_report.py`, `text_loco_table.py` | held-out corpora, LOCO table, old-vs-new |
+| 10. Live app gates | `live_app_text_gates.mjs <live app folder> data/text/pool.jsonl data/text/live_gates.jsonl`, then `live_app_text_tables.py` | the out-of-corpus and held-out results for only the documents the live GAIC app (niro-code-vault `code/apps/aicheck`, 2.6) accepts, with the 2.5.9 heuristic's AUC for comparison → `results/live_app_text_gates.json` |
 
 Training corpora (permissive licenses): `baoguangsheng/truth-mirror` (HART,
 RAID subset; MIT), `baoguangsheng/glimpse` and `baoguangsheng/fast-detect-gpt`

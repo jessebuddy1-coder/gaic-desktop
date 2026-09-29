@@ -1,0 +1,344 @@
+{
+ "decision": {
+  "threshold": 0.77,
+  "knots": [
+   [
+    -4,
+    -2.659
+   ],
+   [
+    -3.75,
+    -2.483
+   ],
+   [
+    -3.5,
+    -2.483
+   ],
+   [
+    -3.25,
+    -2.483
+   ],
+   [
+    -3,
+    -2.354
+   ],
+   [
+    -2.75,
+    -2.354
+   ],
+   [
+    -2.5,
+    -2.354
+   ],
+   [
+    -2.25,
+    -2.331
+   ],
+   [
+    -2,
+    -2.331
+   ],
+   [
+    -1.75,
+    -2.133
+   ],
+   [
+    -1.5,
+    -2.133
+   ],
+   [
+    -1.25,
+    -2.133
+   ],
+   [
+    -1,
+    -2.002
+   ],
+   [
+    -0.75,
+    -1.944
+   ],
+   [
+    -0.5,
+    -1.565
+   ],
+   [
+    -0.25,
+    -1.385
+   ],
+   [
+    0,
+    -1.132
+   ],
+   [
+    0.25,
+    -0.824
+   ],
+   [
+    0.5,
+    -0.485
+   ],
+   [
+    0.75,
+    -0.032
+   ],
+   [
+    1,
+    0.398
+   ],
+   [
+    1.25,
+    0.828
+   ],
+   [
+    1.5,
+    1.338
+   ],
+   [
+    1.75,
+    1.688
+   ],
+   [
+    2,
+    1.698
+   ],
+   [
+    2.25,
+    2.331
+   ],
+   [
+    2.5,
+    2.976
+   ],
+   [
+    2.75,
+    3.144
+   ],
+   [
+    3,
+    3.415
+   ],
+   [
+    3.25,
+    3.517
+   ],
+   [
+    3.5,
+    3.517
+   ],
+   [
+    3.75,
+    4.07
+   ],
+   [
+    4,
+    4.07
+   ],
+   [
+    4.25,
+    4.216
+   ],
+   [
+    4.5,
+    4.216
+   ],
+   [
+    4.75,
+    4.519
+   ],
+   [
+    5,
+    4.52
+   ]
+  ],
+  "aiHigh": 2.12,
+  "aiMedium": 1.26,
+  "humanHigh": -5.42,
+  "humanMedium": -0.71
+ },
+ "gate_outcomes": {
+  "pass": 37118,
+  "Need several complete sentences": 6416,
+  "Sample too short for a score": 17636,
+  "English prose required": 5095,
+  "Repeated or padded sample": 135
+ },
+ "out_of_corpus": {
+  "documents": 30318,
+  "human": 11009,
+  "ai": 19309,
+  "human_lean_ai": 0.0508,
+  "ai_lean_ai": 0.6535,
+  "auc_heuristic_259": 0.6586,
+  "auc_model": 0.8664,
+  "tiers": {
+   "ai-high": {
+    "share": 0.2129,
+    "correct": 0.9866,
+    "ai": 8110,
+    "human": 63
+   },
+   "ai-medium": {
+    "share": 0.0854,
+    "correct": 0.8963,
+    "ai": 2955,
+    "human": 195
+   },
+   "ai-low": {
+    "share": 0.0539,
+    "correct": 0.7463,
+    "ai": 1553,
+    "human": 301
+   },
+   "human-high": {
+    "share": 0.0014,
+    "correct": 0.9634,
+    "ai": 2,
+    "human": 30
+   },
+   "human-medium": {
+    "share": 0.4168,
+    "correct": 0.8085,
+    "ai": 3083,
+    "human": 7420
+   },
+   "human-low": {
+    "share": 0.2296,
+    "correct": 0.5934,
+    "ai": 3606,
+    "human": 3000
+   }
+  },
+  "corpora": {
+   "cheat": {
+    "human": 440,
+    "ai": 618,
+    "human_lean_ai": 0.1136,
+    "ai_lean_ai": 0.5744,
+    "auc_heuristic_259": 0.7483,
+    "auc_model": 0.8176
+   },
+   "ghostbuster": {
+    "human": 3867,
+    "ai": 879,
+    "human_lean_ai": 0.0675,
+    "ai_lean_ai": 0.7235,
+    "auc_heuristic_259": 0.771,
+    "auc_model": 0.9145
+   },
+   "glimpse": {
+    "human": 129,
+    "ai": 348,
+    "human_lean_ai": 0.031,
+    "ai_lean_ai": 0.7874,
+    "auc_heuristic_259": 0.7938,
+    "auc_model": 0.9388
+   },
+   "hart": {
+    "human": 3242,
+    "ai": 10099,
+    "human_lean_ai": 0.0574,
+    "ai_lean_ai": 0.7656,
+    "auc_heuristic_259": 0.7205,
+    "auc_model": 0.9235
+   },
+   "imbd": {
+    "human": 9,
+    "ai": 2971,
+    "human_lean_ai": 0.1111,
+    "ai_lean_ai": 0.7156,
+    "auc_heuristic_259": 0.6097,
+    "auc_model": 0.8498
+   },
+   "outfox": {
+    "human": 1226,
+    "ai": 2639,
+    "human_lean_ai": 0.0049,
+    "ai_lean_ai": 0.3081,
+    "auc_heuristic_259": 0.5901,
+    "auc_model": 0.8238
+   },
+   "raid": {
+    "human": 2096,
+    "ai": 1755,
+    "human_lean_ai": 0.0243,
+    "ai_lean_ai": 0.3886,
+    "auc_heuristic_259": 0.5734,
+    "auc_model": 0.7238
+   }
+  }
+ },
+ "held_out": {
+  "documents": 6798,
+  "human": 2436,
+  "ai": 4362,
+  "human_lean_ai": 0.0168,
+  "ai_lean_ai": 0.7563,
+  "auc_heuristic_259": 0.7936,
+  "auc_model": 0.9661,
+  "tiers": {
+   "ai-high": {
+    "share": 0.224,
+    "correct": 0.9982,
+    "ai": 1951,
+    "human": 2
+   },
+   "ai-medium": {
+    "share": 0.1077,
+    "correct": 0.9752,
+    "ai": 916,
+    "human": 13
+   },
+   "ai-low": {
+    "share": 0.0549,
+    "correct": 0.9027,
+    "ai": 432,
+    "human": 26
+   },
+   "human-high": {
+    "share": 0.0023,
+    "correct": 1.0,
+    "ai": 0,
+    "human": 11
+   },
+   "human-medium": {
+    "share": 0.4445,
+    "correct": 0.935,
+    "ai": 252,
+    "human": 2025
+   },
+   "human-low": {
+    "share": 0.1666,
+    "correct": 0.4422,
+    "ai": 811,
+    "human": 359
+   }
+  },
+  "corpora": {
+   "argugpt": {
+    "human": 0,
+    "ai": 1717,
+    "human_lean_ai": null,
+    "ai_lean_ai": 0.919,
+    "auc_heuristic_259": null,
+    "auc_model": null
+   },
+   "detector-bias": {
+    "human": 206,
+    "ai": 53,
+    "human_lean_ai": 0.0291,
+    "ai_lean_ai": 0.7925,
+    "auc_heuristic_259": 0.8388,
+    "auc_model": 0.9845
+   },
+   "detectrl": {
+    "human": 2230,
+    "ai": 2592,
+    "human_lean_ai": 0.0157,
+    "ai_lean_ai": 0.6478,
+    "auc_heuristic_259": 0.6981,
+    "auc_model": 0.9484
+   }
+  }
+ }
+}
