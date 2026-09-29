@@ -1,0 +1,260 @@
+name: Desktop release
+
+# Rebuilds the GAIC desktop downloads from the published 2.4.0 installers with
+# the engine update in engine/runtime applied, then tests them on real Windows
+# and macOS machines: the Windows installer is installed over 2.4.0, and both
+# apps run a text, photo, and 48 MP photo check through their real UI.
+# A GitHub release is published only when engine/desktop/package.json has
+# "gaicRelease": { "publish": true } and every test passed.
+on:
+  push:
+    branches: [claude/ai-checker-accuracy-gnlamg]
+    paths:
+      - "engine/**"
+      - ".github/workflows/desktop-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Keep line endings exactly as committed
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Read the release settings
+        id: rel
+        run: |
+          node -e '
+            const p = require("./engine/desktop/package.json");
+            const lines = [`version=${p.version}`, `base=${p.gaicRelease.base}`, `publish=${p.gaicRelease.publish}`];
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");'
+      - name: Download the 2.4.0 installer
+        run: |
+          gh release download "${{ steps.rel.outputs.base }}" --repo "$GITHUB_REPOSITORY" --pattern "GAIC-Setup-2.4.0-x64.exe" --dir base
+          want=$(node -p 'require("./engine/desktop/package.json").gaicRelease.baseAssets["GAIC-Setup-2.4.0-x64.exe"]')
+          echo "$want  base/GAIC-Setup-2.4.0-x64.exe" | sha256sum -c -
+      - name: Unpack the 2.4.0 app
+        run: |
+          7z x -y base/GAIC-Setup-2.4.0-x64.exe -obase/nsis > /dev/null
+          7z x -y 'base/nsis/$PLUGINSDIR/app-64.7z' -oapp > /dev/null
+          ls app app/resources
+      - name: Apply the engine update (runs the engine tests)
+        run: engine/desktop/prepare-runtime.sh app/resources/app "${{ steps.rel.outputs.version }}" "$GITHUB_SHA"
+      - name: Build the installer
+        working-directory: engine/desktop
+        run: |
+          npm install --no-save --no-audit --no-fund electron-builder@26.0.12 playwright-core@1.56.1
+          npx electron-builder --win nsis --x64 --prepackaged ../../app --publish never
+          ls -la dist
+      - name: Check the installer carries exactly the prepared app
+        run: |
+          setup="engine/desktop/dist/GAIC-Setup-${{ steps.rel.outputs.version }}-x64.exe"
+          7z x -y "$setup" -onew/nsis > /dev/null
+          7z x -y 'new/nsis/$PLUGINSDIR/app-64.7z' -onew/app > /dev/null
+          (cd app && find . -type f -print0 | sort -z | xargs -0 sha256sum) > prepared.sha
+          (cd new/app && find . -type f -print0 | sort -z | xargs -0 sha256sum) > packed.sha
+          diff prepared.sha packed.sha
+          echo "$(wc -l < packed.sha) files match"
+          sha256sum "$setup"
+      - name: Install 2.4.0, then upgrade it with the new installer
+        shell: pwsh
+        run: |
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\b91ab059-8101-5c06-8516-938b5b57c439'
+          Start-Process -Wait -FilePath 'base\GAIC-Setup-2.4.0-x64.exe' -ArgumentList '/S'
+          $old = Get-ItemProperty $key
+          "installed: $($old.DisplayName) $($old.DisplayVersion) at $($old.InstallLocation)"
+          if ($old.DisplayVersion -ne '2.4.0') { throw '2.4.0 did not install' }
+          Get-Process GAIC -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Process -Wait -FilePath 'engine\desktop\dist\GAIC-Setup-${{ steps.rel.outputs.version }}-x64.exe' -ArgumentList '/S'
+          $new = Get-ItemProperty $key
+          "installed: $($new.DisplayName) $($new.DisplayVersion) at $($new.InstallLocation)"
+          if ($new.DisplayVersion -ne '${{ steps.rel.outputs.version }}') { throw 'the upgrade did not register the new version' }
+          $entries = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object { $_.DisplayName -like 'GAIC*' })
+          if ($entries.Count -ne 1) { throw "expected one GAIC entry in Installed apps, found $($entries.Count)" }
+          "INSTALL_DIR=$($new.InstallLocation)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Check the installed files
+        run: |
+          dir="$(cygpath -u "$INSTALL_DIR")"
+          while read -r rel; do
+            [ -z "$rel" ] && continue
+            cmp "engine/runtime/$rel" "$dir/resources/app/$rel"
+          done < engine/runtime/FILES.txt
+          test ! -e "$dir/resources/app/models/aicheck-ai-image-v2-fp16.onnx"
+          cmp app/GAIC.exe "$dir/GAIC.exe"
+          cmp app/resources/app.asar "$dir/resources/app.asar"
+          ls -la "$APPDATA/Microsoft/Windows/Start Menu/Programs/GAIC.lnk" "$USERPROFILE/Desktop/GAIC.lnk"
+      - name: Run checks in the installed app
+        working-directory: engine/desktop
+        run: node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/windows
+      - name: Uninstall
+        shell: pwsh
+        run: |
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\b91ab059-8101-5c06-8516-938b5b57c439'
+          Get-Process GAIC -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Process -Wait -FilePath "$env:INSTALL_DIR\Uninstall GAIC.exe" -ArgumentList '/currentuser', '/S'
+          for ($i = 0; $i -lt 60 -and (Test-Path $key); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $key) { throw 'the uninstaller left the Installed apps entry' }
+          if (Test-Path "$env:INSTALL_DIR\GAIC.exe") { throw 'the uninstaller left GAIC.exe' }
+          'uninstalled cleanly'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: engine/desktop/dist/GAIC-Setup-*-x64.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-checks
+          path: |
+            out/windows/*.png
+            out/windows/*.json
+            out/windows/*.log
+          if-no-files-found: warn
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Read the release settings
+        id: rel
+        run: |
+          node -e '
+            const p = require("./engine/desktop/package.json");
+            const lines = [`version=${p.version}`, `build=${p.build.buildVersion}`, `base=${p.gaicRelease.base}`];
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");'
+      - name: Download the 2.4.0 disk image
+        run: |
+          gh release download "${{ steps.rel.outputs.base }}" --repo "$GITHUB_REPOSITORY" --pattern "GAIC-2.4.0-universal.dmg" --dir base
+          want=$(node -p 'require("./engine/desktop/package.json").gaicRelease.baseAssets["GAIC-2.4.0-universal.dmg"]')
+          echo "$want  base/GAIC-2.4.0-universal.dmg" | shasum -a 256 -c -
+      - name: Copy the 2.4.0 app and image layout out of the image
+        run: |
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/base" base/GAIC-2.4.0-universal.dmg
+          mkdir -p work
+          ditto "$RUNNER_TEMP/base/GAIC.app" work/GAIC.app
+          cp "$RUNNER_TEMP/base/.background.tiff" "$RUNNER_TEMP/base/.VolumeIcon.icns" "$RUNNER_TEMP/base/.DS_Store" work/
+          hdiutil detach "$RUNNER_TEMP/base"
+          codesign -dvvv work/GAIC.app 2>&1 | head -30
+          codesign -d --entitlements - work/GAIC.app 2>&1 | head -30 || true
+          codesign --verify --deep --strict --verbose=2 work/GAIC.app || echo "note: the 2.4.0 app does not pass strict verification"
+      - name: Apply the engine update (runs the engine tests)
+        run: engine/desktop/prepare-runtime.sh work/GAIC.app/Contents/Resources/app "${{ steps.rel.outputs.version }}" "$GITHUB_SHA"
+      - name: Set the version and re-sign ad hoc, as 2.4.0 was
+        run: |
+          plist=work/GAIC.app/Contents/Info.plist
+          plutil -replace CFBundleShortVersionString -string "${{ steps.rel.outputs.version }}" "$plist"
+          plutil -replace CFBundleVersion -string "${{ steps.rel.outputs.build }}" "$plist"
+          codesign --force --sign - --preserve-metadata=identifier,entitlements,flags,runtime work/GAIC.app
+          codesign --verify --deep --strict --verbose=2 work/GAIC.app
+          codesign -dvvv work/GAIC.app 2>&1 | head -30
+      - name: Build the disk image with the 2.4.0 layout
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet dmgbuild==1.6.7 ds_store==1.3.3 mac_alias==2.2.3
+          mkdir -p dist
+          dmg="dist/GAIC-${{ steps.rel.outputs.version }}-universal.dmg"
+          "$RUNNER_TEMP/venv/bin/dmgbuild" -s engine/desktop/dmg_settings.py -D app=work/GAIC.app \
+            -D background=work/.background.tiff -D icon=work/.VolumeIcon.icns "GAIC ${{ steps.rel.outputs.version }}" "$dmg"
+          hdiutil verify "$dmg"
+          shasum -a 256 "$dmg"
+      - name: Check the new image, its layout, and the app inside
+        run: |
+          dmg="dist/GAIC-${{ steps.rel.outputs.version }}-universal.dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/new" "$dmg"
+          ls -la "$RUNNER_TEMP/new"
+          "$RUNNER_TEMP/venv/bin/python" engine/desktop/compare_dmg_layout.py work/.DS_Store "$RUNNER_TEMP/new/.DS_Store" "GAIC ${{ steps.rel.outputs.version }}"
+          cmp work/.background.tiff "$RUNNER_TEMP/new/.background.tiff"
+          cmp work/.VolumeIcon.icns "$RUNNER_TEMP/new/.VolumeIcon.icns"
+          test "$(readlink "$RUNNER_TEMP/new/Applications")" = /Applications
+          ditto "$RUNNER_TEMP/new/GAIC.app" "$RUNNER_TEMP/installed/GAIC.app"
+          hdiutil detach "$RUNNER_TEMP/new"
+          app="$RUNNER_TEMP/installed/GAIC.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          while read -r rel; do
+            [ -z "$rel" ] && continue
+            cmp "engine/runtime/$rel" "$app/Contents/Resources/app/$rel"
+          done < engine/runtime/FILES.txt
+          test ! -e "$app/Contents/Resources/app/models/aicheck-ai-image-v2-fp16.onnx"
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" = "${{ steps.rel.outputs.version }}"
+          lipo -archs "$app/Contents/MacOS/GAIC"
+      - name: Run checks in the app
+        working-directory: engine/desktop
+        run: |
+          npm install --no-save --no-audit --no-fund playwright-core@1.56.1
+          node smoke.mjs "$RUNNER_TEMP/installed/GAIC.app/Contents/MacOS/GAIC" ../../out/macos --use-mock-keychain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/GAIC-*-universal.dmg
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-checks
+          path: |
+            out/macos/*.png
+            out/macos/*.json
+            out/macos/*.log
+          if-no-files-found: warn
+
+  publish:
+    needs: [windows, macos]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the release settings
+        id: rel
+        run: |
+          node -e '
+            const p = require("./engine/desktop/package.json");
+            const lines = [`version=${p.version}`, `publish=${p.gaicRelease.publish}`];
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");'
+      - name: Publishing is off
+        if: steps.rel.outputs.publish != 'true'
+        run: echo "Built and tested on Windows and macOS. Publishing is off (engine/desktop/package.json gaicRelease.publish)."
+      - uses: actions/download-artifact@v4
+        if: steps.rel.outputs.publish == 'true'
+        with:
+          path: artifacts
+      - name: Publish the release
+        if: steps.rel.outputs.publish == 'true'
+        run: |
+          version="${{ steps.rel.outputs.version }}"
+          tag="v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::release $tag already exists; leaving it untouched"
+            exit 1
+          fi
+          exe="artifacts/windows-installer/GAIC-Setup-$version-x64.exe"
+          dmg="artifacts/macos-dmg/GAIC-$version-universal.dmg"
+          ls -la "$exe" "$dmg"
+          sha256sum "$exe" "$dmg"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "GAIC $version — desktop" --notes-file engine/desktop/RELEASE-NOTES.md "$exe" "$dmg"

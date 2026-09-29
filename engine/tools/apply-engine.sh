@@ -21,11 +21,15 @@ if [[ -z "$target" || ! -f "$target/ai-detector.html" || ! -f "$target/app.js" |
   exit 2
 fi
 
+sha256() {
+  if command -v sha256sum > /dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi
+}
+
 changed=()
 while read -r sum rel; do
   [[ -z "$rel" ]] && continue
   if [[ -f "$target/$rel" ]]; then
-    now="$(sha256sum "$target/$rel" | cut -d' ' -f1)"
+    now="$(sha256 "$target/$rel" | cut -d' ' -f1)"
     [[ "$now" == "$sum" ]] || changed+=("$rel")
   fi
 done < "$here/runtime/BASELINE-2.4.0.sha256"

@@ -1,0 +1,43 @@
+{
+  "name": "aicheck-desktop",
+  "productName": "GAIC",
+  "version": "2.5.0",
+  "private": true,
+  "author": "NIRO CORP",
+  "description": "Privacy-first GAIC desktop shell with an on-device checker and explicit one-frame screen capture.",
+  "gaicRelease": {
+    "publish": false,
+    "base": "v2.4.0",
+    "baseAssets": {
+      "GAIC-Setup-2.4.0-x64.exe": "2727617b8e634c39946402cd5186f0ffbaac0f096a67be55ecef97d2a7e28c97",
+      "GAIC-2.4.0-universal.dmg": "9bf782bc2363e0c2aff562056a8b6de638fcd01f4557eb3f6f545da5fd95e666"
+    }
+  },
+  "build": {
+    "appId": "com.nirocorp.aicheck",
+    "productName": "GAIC",
+    "copyright": "Copyright © 2026 NIRO CORP",
+    "electronVersion": "43.2.0",
+    "buildVersion": "25001",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "guid": "b91ab059-8101-5c06-8516-938b5b57c439",
+      "artifactName": "GAIC-Setup-${version}-x64.exe",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "differentialPackage": false
+    },
+    "publish": null
+  }
+}

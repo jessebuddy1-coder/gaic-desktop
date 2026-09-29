@@ -89,7 +89,10 @@ diff against the 2.4.0 runtime. Binary files are not in the patch:
    * **iOS and Android:** `npx cap sync`, then archive and submit.
    * **Windows and macOS:** run the electron-builder release, which regenerates
      `desktop-build-manifest.json`, then upload the installers to this
-     repository's Releases.
+     repository's Releases. Without the source repository,
+     [desktop/README.md](desktop/README.md) rebuilds both downloads from the
+     2.4.0 installers with this update and tests them on real Windows and
+     macOS machines.
    * **Chrome extension:** rebuild it with the updated worker files.
 5. Decide on the terms. They still call the text tool "an unvalidated,
    English-focused pattern heuristic" and disclaim correctness. That is still
