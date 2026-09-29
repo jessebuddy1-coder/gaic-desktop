@@ -72,7 +72,7 @@ jobs:
           diff prepared.sha packed.sha
           echo "$(wc -l < packed.sha) files match"
           sha256sum "$setup"
-      - name: Install 2.4.0, then upgrade it with the new installer
+      - name: Install 2.4.0
         shell: pwsh
         run: |
           $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\b91ab059-8101-5c06-8516-938b5b57c439'
@@ -80,9 +80,23 @@ jobs:
           $old = Get-ItemProperty $key
           "installed: $($old.DisplayName) ($($old.DisplayVersion))"
           if ($old.DisplayVersion -ne '2.4.0') { throw '2.4.0 did not install' }
+          # electron-builder records the folder under Software\<GUID>, not the uninstall key.
+          $loc = (Get-ItemProperty 'HKCU:\Software\b91ab059-8101-5c06-8516-938b5b57c439' -ErrorAction SilentlyContinue).InstallLocation
+          if (-not $loc) { $loc = Join-Path $env:LOCALAPPDATA 'Programs\aicheck-desktop' }
+          if (-not (Test-Path (Join-Path $loc 'GAIC.exe'))) { throw "GAIC.exe not found in $loc" }
+          "install location: $loc"
+          "INSTALL_DIR=$loc" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           # Stand-in for a person's settings: the app data folder must survive the upgrade.
           New-Item -ItemType Directory -Force "$env:APPDATA\GAIC" | Out-Null
           Set-Content "$env:APPDATA\GAIC\upgrade-marker.txt" 'kept'
+      - name: Probe the unchanged 2.4.0 app on this machine (diagnostic)
+        continue-on-error: true
+        working-directory: engine/desktop
+        run: node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/probe-2.4.0 --probe
+      - name: Upgrade 2.4.0 with the new installer
+        shell: pwsh
+        run: |
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\b91ab059-8101-5c06-8516-938b5b57c439'
           Get-Process GAIC -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Process -Wait -FilePath 'engine\desktop\dist\GAIC-Setup-${{ steps.rel.outputs.version }}-x64.exe' -ArgumentList '/S'
           $new = Get-ItemProperty $key
@@ -91,12 +105,7 @@ jobs:
           $entries = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object { $_.DisplayName -like 'GAIC*' })
           if ($entries.Count -ne 1) { throw "expected one GAIC entry in Installed apps, found $($entries.Count)" }
           if (-not (Test-Path "$env:APPDATA\GAIC\upgrade-marker.txt")) { throw 'the upgrade removed the app data folder' }
-          # electron-builder records the folder under Software\<GUID>, not the uninstall key.
-          $loc = (Get-ItemProperty 'HKCU:\Software\b91ab059-8101-5c06-8516-938b5b57c439' -ErrorAction SilentlyContinue).InstallLocation
-          if (-not $loc) { $loc = Join-Path $env:LOCALAPPDATA 'Programs\GAIC' }
-          if (-not (Test-Path (Join-Path $loc 'GAIC.exe'))) { throw "GAIC.exe not found in $loc" }
-          "install location: $loc"
-          "INSTALL_DIR=$loc" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          if (-not (Test-Path (Join-Path $env:INSTALL_DIR 'GAIC.exe'))) { throw 'the upgrade moved the app' }
       - name: Check the installed files
         run: |
           dir="$(cygpath -u "$INSTALL_DIR")"
@@ -108,6 +117,13 @@ jobs:
           cmp app/GAIC.exe "$dir/GAIC.exe"
           cmp app/resources/app.asar "$dir/resources/app.asar"
           ls -la "$APPDATA/Microsoft/Windows/Start Menu/Programs/GAIC.lnk" "$USERPROFILE/Desktop/GAIC.lnk"
+      - name: Probe the new app with and without the sandbox and GPU (diagnostic)
+        continue-on-error: true
+        working-directory: engine/desktop
+        run: |
+          node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/probe-new --probe || true
+          node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/probe-new-nosandbox --probe --no-sandbox || true
+          node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/probe-new-nogpu --probe --disable-gpu || true
       - name: Run checks in the installed app
         working-directory: engine/desktop
         run: node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/windows

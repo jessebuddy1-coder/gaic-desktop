@@ -15,13 +15,17 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runtimeDir = path.join(here, "..", "runtime");
-const [, , exe, outDir, ...extraArgs] = process.argv;
+const [, , exe, outDir, ...rest] = process.argv;
+// --probe: only check that the app's page loads and answers, then exit.
+const probeOnly = rest.includes("--probe");
+const extraArgs = rest.filter((arg) => arg !== "--probe");
 if (!exe || !outDir) {
   console.error("usage: node smoke.mjs <app-executable> <out-dir> [extra app args...]");
   process.exit(2);
 }
 fs.mkdirSync(outDir, { recursive: true });
 const PORT = 9333;
+const appLogPath = path.join(outDir, "app.log");
 const failures = [];
 const report = { exe, checks: [], errors: [] };
 const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
@@ -140,6 +144,11 @@ class Page {
     fs.writeFileSync(file, Buffer.from(data, "base64"));
   }
   close() { try { this.ws.close(); } catch (_) {} }
+}
+
+function rendererCrashed() {
+  try { return /Renderer process crashed|render process gone|renderer.*crash/i.test(fs.readFileSync(appLogPath, "utf8")); }
+  catch (_) { return false; }
 }
 
 async function devToolsJson(route) {
@@ -279,7 +288,6 @@ async function pickSyntheticPhoto(page, width, height, name) {
 // A fresh profile, so the weekly allowance and any saved state start empty.
 const profile = path.resolve(outDir, "profile");
 fs.rmSync(profile, { recursive: true, force: true });
-const appLogPath = path.join(outDir, "app.log");
 const appLog = fs.createWriteStream(appLogPath);
 const child = spawn(exe, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
   "--enable-logging=stderr", "--v=0", ...extraArgs], { stdio: ["ignore", "pipe", "pipe"] });
@@ -300,9 +308,14 @@ try {
     } catch (e) {
       log(`page not answering yet (${attempt}/6): ${e.message}`);
       await diagnose(target);
+      if (rendererCrashed()) throw new Error("the app's page process crashed (see the app log below)");
     }
   }
   if (!answered) throw new Error("the app's page never answered DevTools commands");
+  if (probeOnly) {
+    log("PROBE OK: the page loaded and answers:", JSON.stringify(await page.evaluate(() => document.readyState + " " + document.title)));
+    throw Object.assign(new Error("probe finished"), { probeOk: true });
+  }
   await page.send("Runtime.enable");
   await page.send("Page.enable");
   await page.waitFor(() => document.readyState === "complete" && !!(window.AICheck && window.OnnxDetector), 120_000, "the app to load");
@@ -358,7 +371,7 @@ try {
 
   check(report.errors.length === 0, `page logged errors: ${report.errors.join(" | ")}`);
 } catch (error) {
-  failures.push(`smoke test aborted: ${error && error.stack ? error.stack : error}`);
+  if (!(error && error.probeOk)) failures.push(`smoke test aborted: ${error && error.stack ? error.stack : error}`);
 } finally {
   if (page) page.close();
   child.kill();
@@ -372,5 +385,5 @@ if (failures.length) {
   console.error("[smoke] last lines of the app's own log:\n" + tail);
   process.exit(1);
 }
-log("all checks passed");
+log(probeOnly ? "probe passed" : "all checks passed");
 process.exit(0);
