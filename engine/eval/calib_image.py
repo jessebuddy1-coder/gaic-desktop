@@ -39,15 +39,19 @@ def knots(y, s, t, lo=None, hi=None, step=0.25, temperature=1.0):
     return pin_knots([[round(float(g), 3), round(float(v), 4)] for g, v in zip(grid, lo_)], t)
 
 def pin_knots(k, t, margin=0.05):
-    """Make the lean follow the threshold exactly: a knot at t (floored to 5
-    decimals) with log-odds 0, every knot below t at most -margin and every knot
-    above it at least +margin. The isotonic fit is flat around t, so without
-    this a band just under t sits at exactly 50% and leans AI (p >= 0.5), and
-    the app rounds the likelihood to 4 decimals, so the margin must be large
-    enough to survive that. Knots already further from 0 are unchanged."""
+    """Make the lean follow the threshold: a knot at t (floored to 5 decimals)
+    with log-odds 0, a knot 1e-5 below it at -margin, every other knot below t
+    at most -margin and every knot above it at least +margin. The isotonic fit
+    is flat around t, so without this a band just under t sits at exactly 50%
+    and leans AI (p >= 0.5). The app rounds the likelihood to 4 decimals, which
+    turns log-odds within 2e-4 of 0 into exactly 50%, so the knot just below t
+    keeps that band under 1e-7 of a logit. Knots already further from 0 are
+    unchanged."""
     tt = float(np.floor(t * 1e5) / 1e5)
-    out = [[x, min(v, -margin) if x < tt else max(v, margin)] for x, v in k if abs(x - tt) > 1e-9]
-    out.append([tt, 0.0])
+    below = round(tt - 1e-5, 5)
+    out = [[x, min(v, -margin) if x < tt else max(v, margin)] for x, v in k
+           if abs(x - tt) > 1e-9 and abs(x - below) > 1e-9]
+    out += [[below, -margin], [tt, 0.0]]
     return sorted(out, key=lambda a: a[0])
 
 def apply_knots(k, s):

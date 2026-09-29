@@ -1,116 +1,123 @@
 {
  "photos": {
   "n": 13926,
-  "ai_called_ai": 0.6708366563769189,
-  "real_called_ai": 0.037533031232041124,
-  "worst_real_source": 0.09956709956709957,
-  "auc": 0.9538939804904457,
-  "per_ai_family": {
+  "pictureLocated": 440,
+  "aiCalledAi": 0.6736567569491433,
+  "realCalledAi": 0.03981435420826194,
+  "perAiGroup": {
    "flux": 0.6956521739130435,
-   "google": 0.58298755186722,
+   "google": 0.5923236514522822,
    "ideogram": 0.37037037037037035,
    "microsoft": 0.7368421052631579,
    "midjourney": 0.612094395280236,
-   "mixed": 0.6603351955307263,
+   "mixed": 0.6726256983240223,
    "open-diffusion": 0.875,
-   "openai": 0.6932153392330384,
-   "photoreal-mixed": 0.8002773925104022,
+   "openai": 0.6956288549208903,
+   "photoreal-mixed": 0.8044382801664355,
    "seedream": 0.681592039800995
   },
-  "per_real_source": {
-   "art_pokemon_official": 0.015665796344647518,
-   "art_wesnoth": 0.027932960893854747,
-   "charts_chartqa": 0.0,
+  "perRealGroup": {
+   "art_pokemon_official": 0.018276762402088774,
+   "art_wesnoth": 0.0335195530726257,
+   "charts_chartqa": 0,
    "docci": 0.09956709956709957,
    "graphics-synth": 0.002857142857142857,
-   "memes_memegen": 0.06417112299465241,
-   "nonphoto_openimages": 0.095,
-   "openimages": 0.017218543046357615,
+   "memes_memegen": 0.06951871657754011,
+   "nonphoto_openimages": 0.1,
+   "openimages": 0.019205298013245033,
    "ui_rico": 0.015384615384615385
+  },
+  "worstRealGroup": 0.1,
+  "auc": 0.9536022158397862,
+  "confidence": {
+   "ai high": {
+    "share": 0.252942380933899,
+    "correct": 0.9804223111292532,
+    "ai": 3702,
+    "real": 64
+   },
+   "ai low": {
+    "share": 0.0008095808192539914,
+    "correct": 0.33097725875845113,
+    "ai": 4,
+    "real": 7
+   },
+   "ai medium": {
+    "share": 0.1049764340826061,
+    "correct": 0.8997579031067324,
+    "ai": 1410,
+    "real": 136
+   },
+   "real high": {
+    "share": 0.325684424202436,
+    "correct": 0.9726439728832696,
+    "ai": 133,
+    "real": 4094
+   },
+   "real low": {
+    "share": 0.22853957740577863,
+    "correct": 0.41406458583662076,
+    "ai": 1999,
+    "real": 1223
+   },
+   "real medium": {
+    "share": 0.08704760255602627,
+    "correct": 0.8337753947112692,
+    "ai": 216,
+    "real": 938
+   }
   }
  },
  "gaic_2_4_0": {
-  "warning_ai_called_ai": 0.20572609260469904,
-  "warning_real_called_ai": 0.015952937730363506,
+  "warningAiCalledAi": 0.20572609260469904,
+  "warningRealCalledAi": 0.015952937730363506,
   "auc": 0.7194623224802067,
-  "same_rate_ai_called_ai": 0.2821219821616264,
-  "same_rate_real_called_ai": 0.037421677375566266,
-  "same_rate_per_ai_family": {
+  "sameRateAiCalledAi": 0.28492769651184036,
+  "sameRateRealCalledAi": 0.039732222399038,
+  "sameRatePerAiGroup": {
    "flux": 0.5869565217391305,
-   "google": 0.17738589211618258,
+   "google": 0.17842323651452283,
    "ideogram": 0.1111111111111111,
    "microsoft": 0.10526315789473684,
-   "midjourney": 0.29646017699115046,
+   "midjourney": 0.30383480825958703,
    "mixed": 0.23128491620111732,
-   "open-diffusion": 0.842391304347826,
-   "openai": 0.13917940466613032,
-   "photoreal-mixed": 0.17198335644937587,
-   "seedream": 0.15920398009950248
-  }
- },
- "photo_confidence": {
-  "ai high": {
-   "share": 0.252875392723824,
-   "correct": 0.9804171248819052,
-   "ai": 3701,
-   "real": 64
-  },
-  "ai medium": {
-   "share": 0.10278087528275619,
-   "correct": 0.9013806729986595,
-   "ai": 1383,
-   "real": 131
-  },
-  "real high": {
-   "share": 0.3298569748845837,
-   "correct": 0.9713653542603315,
-   "ai": 141,
-   "real": 4141
-  },
-  "real low": {
-   "share": 0.23188538037361134,
-   "correct": 0.41443008781621443,
-   "ai": 2027,
-   "real": 1242
-  },
-  "real medium": {
-   "share": 0.08260137673522477,
-   "correct": 0.8280718663875545,
-   "ai": 212,
-   "real": 884
+   "open-diffusion": 0.8532608695652174,
+   "openai": 0.1415929203539823,
+   "photoreal-mixed": 0.17337031900138697,
+   "seedream": 0.16417910447761194
   }
  },
  "screenshots": {
-  "n_ai": 520,
-  "n_real": 520,
-  "picture_located": 0.8663461538461539,
-  "ai_called_ai": 0.7134615384615385,
-  "real_called_ai": 0.04230769230769231,
-  "auc": 0.9289811390532544,
-  "per_layout": {
+  "nAi": 520,
+  "nReal": 520,
+  "pictureLocated": 0.8663461538461539,
+  "aiCalledAi": 0.6903846153846154,
+  "realCalledAi": 0.032692307692307694,
+  "auc": 0.9393676035502958,
+  "perLayout": {
    "article-desktop": {
-    "ai_called_ai": 0.6732673267326733,
-    "real_called_ai": 0.030303030303030304
+    "aiCalledAi": 0.6435643564356436,
+    "realCalledAi": 0.030303030303030304
    },
    "chat-dark": {
-    "ai_called_ai": 0.7101449275362319,
-    "real_called_ai": 0.024096385542168676
+    "aiCalledAi": 0.6956521739130435,
+    "realCalledAi": 0.024096385542168676
    },
    "letterbox": {
-    "ai_called_ai": 0.7721518987341772,
-    "real_called_ai": 0.041237113402061855
+    "aiCalledAi": 0.759493670886076,
+    "realCalledAi": 0.020618556701030927
    },
    "portal-light": {
-    "ai_called_ai": 0.782051282051282,
-    "real_called_ai": 0.014084507042253521
+    "aiCalledAi": 0.7307692307692307,
+    "realCalledAi": 0.014084507042253521
    },
    "social-phone": {
-    "ai_called_ai": 0.6039603960396039,
-    "real_called_ai": 0.031914893617021274
+    "aiCalledAi": 0.594059405940594,
+    "realCalledAi": 0.02127659574468085
    },
    "viewer-phone": {
-    "ai_called_ai": 0.7717391304347826,
-    "real_called_ai": 0.11842105263157894
+    "aiCalledAi": 0.75,
+    "realCalledAi": 0.09210526315789473
    }
   }
  }

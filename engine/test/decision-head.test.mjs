@@ -145,6 +145,7 @@ test("the shipped decision head is complete and its calibration is monotone", ()
     assert.equal(zero.length, 1, kind + " has one threshold knot");
     const at = knots.indexOf(zero[0]);
     assert.ok(knots.slice(0, at).every(([, v]) => v <= -0.05), kind + " knots below the threshold lean real");
+    assert.ok(Math.abs(knots[at - 1][0] - (knots[at][0] - 1e-5)) < 1e-9, kind + " has a knot just below the threshold");
     assert.ok(knots.slice(at + 1).every(([, v]) => v >= 0.05), kind + " knots above the threshold lean AI");
     const shown = (x) => {
       const i = knots.findIndex(([kx]) => x <= kx);
@@ -153,7 +154,10 @@ test("the shipped decision head is complete and its calibration is monotone", ()
       return Math.round(1e4 / (1 + Math.exp(-logOdds))) / 1e4;
     };
     const t = zero[0][0];
-    assert.ok(shown(t - 0.01) < 0.5 && shown(t) >= 0.5 && shown(t + 0.01) > 0.5, kind + " rounding keeps the threshold");
+    for (const below of [0.01, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7]) {
+      assert.ok(shown(t - below) < 0.5, `${kind}: ${below} below the threshold still leans real after rounding`);
+    }
+    assert.ok(shown(t) >= 0.5 && shown(t + 1e-7) >= 0.5 && shown(t + 0.01) > 0.5, kind + " the threshold and above lean AI");
   }
   const worker = read("detector-worker.js");
   assert.match(worker, /try \{ importScripts\("image-head\.js"\); \} catch \(_\) \{\}/);

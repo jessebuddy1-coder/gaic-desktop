@@ -249,10 +249,14 @@ averages in logit space. For a located picture (scan v6), the headline uses
 the higher of the picture average and the frame average. A monotone knot table
 maps that average to the displayed AI likelihood, with separate tables for
 direct images, composite frames, and video frames. Each table has one knot at
-exactly 50%, at its lean threshold, and every other knot at least 0.05 log-odds
-away from it, so the lean switches exactly at the threshold even after the
-worker rounds the likelihood to 4 decimals (`eval/calib_image.py`
-`pin_knots`). The worker computes the
+exactly 50%, at its lean threshold, a knot 1e-5 below it and every other knot
+at least 0.05 log-odds away, so the lean follows the threshold to within 1e-5
+of a logit even after the worker rounds the likelihood to 4 decimals
+(`eval/calib_image.py` `pin_knots`). The composite table applies to any
+upload where scan v6 locates a picture, screenshots and ordinary photos alike
+(for example a painting with a border), so it was calibrated on both
+(`eval/recalibrate_composite.py`): the rule is the higher of the picture and
+frame averages, with its lean threshold at a head logit of 1.79. The worker computes the
 head only when both `image-head.js` and the feature output are present, and
 otherwise returns the engine v2 reading unchanged.
 
@@ -307,43 +311,46 @@ never saw its group):
 
 | | GAIC 2.4.0 warning (≥95) | v2 model at the same real false-lean rate | **engine v3** |
 | --- | ---: | ---: | ---: |
-| AI images called AI (family-balanced) | 20.6% | 28.2% | **67.1%** |
-| Real images called AI (source-balanced) | 1.6% | 3.7% | **3.8%** |
+| AI images called AI (family-balanced) | 20.6% | 28.5% | **67.4%** |
+| Real images called AI (source-balanced) | 1.6% | 4.0% | **4.0%** |
 | AUC (pooled) | 0.719 | 0.719 | **0.954** |
 
 | AI family (held out) | v2 at same rate | **v3** |
 | --- | ---: | ---: |
 | Photorealistic social / avatar / product | 17% | **80%** |
-| OpenAI GPT-4o / gpt-image | 14% | **69%** |
+| OpenAI GPT-4o / gpt-image | 14% | **70%** |
 | Seedream | 16% | **68%** |
-| mixed galleries | 23% | **66%** |
+| mixed galleries | 23% | **67%** |
 | Midjourney | 30% | **61%** |
-| Google Nano Banana | 18% | **58%** |
+| Google Nano Banana | 18% | **59%** |
 | Ideogram (27 images) | 11% | **37%** |
 
 Real images leaning AI, per held-out source: charts 0.0%, rendered graphics
-0.3%, Rico app screens 1.5%, Pokémon art 1.6%, Open Images photos 1.7%,
-Wesnoth paintings 2.8%, memes 6.4%, Open Images non-photo 9.5%, DOCCI camera
+0.3%, Rico app screens 1.5%, Pokémon art 1.8%, Open Images photos 1.9%,
+Wesnoth paintings 3.4%, memes 7.0%, Open Images non-photo 10.0%, DOCCI camera
 photos 10.0%. In a 5-fold split where every source is represented in training
 (closer to the shipped head), DOCCI photos leaned AI 0.1% of the time.
 
-Every figure here is computed the way the app decides: the calibration table,
-the worker's rounding, the 50% lean, and the confidence cuts, applied to the
-committed per-image held-out scores (`eval/image_report_v3.py`).
+Every figure here is computed by the app's own decision code (the worker's
+calibration, composite path, and rounding, and `decideImageLean`), applied to
+the committed per-image held-out scores (`eval/image_report_v3.mjs`). The
+scan locates a picture in 440 of these photos, which then take the composite
+path.
 
 Share of correct leans per confidence level (held out, balanced classes):
 
 | Lean / confidence | Share of images | Correct |
 | --- | ---: | ---: |
 | AI, high | 25% | **98.0%** |
-| AI, medium | 10% | 90.1% |
-| Real, high | 33% | **97.1%** |
-| Real, medium | 8% | 82.8% |
+| AI, medium | 10% | 90.0% |
+| AI, low | 0.1% | 33% (a close call, labelled as one) |
+| Real, high | 33% | **97.3%** |
+| Real, medium | 9% | 83.4% |
 | Real, low | 23% | 41.4% (a close call, labelled as one) |
 
 **Screenshots** (1,040 screenshots of the same images in six app and web
-layouts). v3 calibrates composite frames on their own. See `RESULTS.md` for the
-held-out numbers per layout.
+layouts): 69.0% of AI screenshots and 3.3% of real ones leaned AI, AUC 0.939.
+See `RESULTS.md` for the held-out numbers per layout.
 
 **Video.** Video frames skip the picture reading and use the direct table
 flattened by a factor of 0.75 in log-odds, with stricter confidence cuts. No

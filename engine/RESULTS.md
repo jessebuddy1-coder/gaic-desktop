@@ -30,21 +30,24 @@ on 2025–2026 generators and on real photos, art, charts, and screenshots
 9 real-image sources. Each group is scored by a head that **never saw that
 group**, so every AI image comes from a generator family the head was not
 trained on. Thresholds were set on these held-out scores, and every figure is
-computed exactly the way the app decides (`eval/image_report_v3.py`).
+computed by the app's own decision code: the worker's calibration and
+rounding, including the composite path for the 440 photos where the scan
+locates a picture inside the image, and `decideImageLean`
+(`eval/image_report_v3.mjs`).
 
 | | 2.4.0 warning (≥95) | 2.4.0 model at the same false-lean rate | **Updated** |
 | --- | ---: | ---: | ---: |
-| AI images called AI (family-balanced) | 20.6% | 28.2% | **67.1%** |
-| Real images called AI (source-balanced) | 1.6% | 3.7% | **3.8%** |
+| AI images called AI (family-balanced) | 20.6% | 28.5% | **67.4%** |
+| Real images called AI (source-balanced) | 1.6% | 4.0% | **4.0%** |
 | AUC | 0.719 | 0.719 | **0.954** |
 
 | Held-out AI family | 2.4.0 model at the same rate | **Updated** |
 | --- | ---: | ---: |
 | Photorealistic social posts, avatars, product shots | 17% | **80%** |
-| OpenAI (GPT-4o, gpt-image-1/1.5/2/2.5) | 14% | **69%** |
+| OpenAI (GPT-4o, gpt-image-1/1.5/2/2.5) | 14% | **70%** |
 | Seedream 4.5/5.0 | 16% | **68%** |
 | Midjourney v6–v7 | 30% | **61%** |
-| Google Nano Banana / Pro | 18% | **58%** |
+| Google Nano Banana / Pro | 18% | **59%** |
 
 **Real images leaning AI, per held-out source:**
 
@@ -52,10 +55,10 @@ computed exactly the way the app decides (`eval/image_report_v3.py`).
 | --- | ---: |
 | Charts | 0% |
 | App screenshots | 1.5% |
-| Open Images photos | 1.7% |
-| Digital paintings | 2.8% |
-| Memes | 6.4% |
-| Open Images non-photo images | 9.5% |
+| Open Images photos | 1.9% |
+| Digital paintings | 3.4% |
+| Memes | 7.0% |
+| Open Images non-photo images | 10.0% |
 | 2023 camera photos (DOCCI) | 10.0% |
 
 The DOCCI figure falls to 0.1% when that kind of photo is represented in
@@ -67,6 +70,7 @@ training, as it is in the shipped head.
 | --- | ---: |
 | AI, high | **98%** |
 | AI, medium | 90% |
+| AI, low (a close call; 0.1% of images) | 33% |
 | Real, high | **97%** |
 | Real, medium | 83% |
 | Real, low (a close call) | 41% |
@@ -74,24 +78,27 @@ training, as it is in the shipped head.
 ## Screenshots
 
 1,040 screenshots (520 real, 520 AI) of the same images in six app and web
-layouts. Scores are held out by generator family, like the photo numbers.
+layouts. Scores are held out by generator family, like the photo numbers. The
+composite calibration (a picture located inside the frame) was set on these
+screenshots and on the photos that take the same path, so it keeps the photo
+limits too.
 
 | | 2.4.0 | Engine v2 (scan v6) | **Updated** |
 | --- | ---: | ---: | ---: |
-| AI screenshots called AI | 3.1% (≥95) | 9.8% (≥95) | **71.3%** |
-| Real screenshots called AI | 0% | 0% | **4.2%** |
-| AUC | 0.608 | 0.667 | **0.929** |
+| AI screenshots called AI | 3.1% (≥95) | 9.8% (≥95) | **69.0%** |
+| Real screenshots called AI | 0% | 0% | **3.3%** |
+| AUC | 0.608 | 0.667 | **0.939** |
 
 Per layout (AI called AI / real called AI):
 
 | Layout | AI called AI | Real called AI |
 | --- | ---: | ---: |
-| News article | 67% | 3.0% |
-| Dark AI chat | 71% | 2.4% |
-| Letterboxed player | 77% | 4.1% |
-| Light generator portal | 78% | 1.4% |
-| Phone social feed | 60% | 3.2% |
-| Phone photo viewer | 77% | 11.8% |
+| News article | 64% | 3.0% |
+| Dark AI chat | 70% | 2.4% |
+| Letterboxed player | 76% | 2.1% |
+| Light generator portal | 73% | 1.4% |
+| Phone social feed | 59% | 2.1% |
+| Phone photo viewer | 75% | 9.2% |
 
 ## Text
 
