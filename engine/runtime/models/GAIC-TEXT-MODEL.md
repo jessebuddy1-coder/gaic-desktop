@@ -9,7 +9,7 @@ leaves it, and there is no network call, remote model, or telemetry.
 | File | `text-detector.js` (engine and weights in one file, ~75 KB) |
 | Model | logistic regression, 56 stylometric measurements + 2,500-term lexicon |
 | Version string | `GAIC Text Model v2 (2026-09)`, engine `gaic-text-v2.1` (adds the decision below) |
-| Input | English prose that already passed the app's gates (≥1,000 characters, ≥3 sentences, ≥70% English word tokens) |
+| Input | English prose that already passed the app's gates (≥1,000 characters, ≥3 sentences, ≥70% of words written in English letters, and the language check below) |
 | Output | a **lean** (AI-written or human-written), a **confidence level** (high, medium, low), and an estimated **AI likelihood** (1–99%), plus the technical band and the measurements that drove it |
 | Scoring unit | sentence-aligned passages of ~260 words; the document score is the word-weighted mean of passage logits (at most 64 passages) |
 
@@ -140,6 +140,45 @@ letters in science notation (NF-κB, α-helix) never count. RAID's zero-width
 and homoglyph attacks were noticed in 100% and 99.8% of texts. Their plain
 versions and the 3,401 held-out human documents triggered it 0% of the time.
 
+## Other languages
+
+The model was trained on English only. The app's letter test (at least 70% of
+words written in the letters a–z) turned away Chinese, Arabic, or Cyrillic
+text, but Spanish, German, or Polish passed it, and the English model scored
+them. On human writing from Universal Dependencies treebanks (paragraphs of
+1,200 or more characters), it leaned AI-written on 36% of Basque, 15% of
+Finnish, and 10% of Polish paragraphs, and human-written on most of the rest:
+either way a read with no basis.
+
+`languageCheck` now runs first, on the normalized text, and counts the
+commonest short words:
+
+* **Mostly another language:** at least 12 frequent function words of 13
+  widely used Latin-script languages (Spanish, French, German, Italian,
+  Portuguese, Dutch, Catalan, Polish, Czech, Swedish, Indonesian, Turkish,
+  Vietnamese), and more than twice as many as English ones.
+* **No English:** fewer than 3% English function words in 80 or more words.
+  This catches languages the list does not cover, and lists such as a
+  recipe's ingredients, which are not prose either. Text carrying disguise
+  tricks skips this test, so hidden letters cannot turn a check into a refusal.
+
+English function words that are also common words elsewhere (a, i, in, is,
+on, to, do, no, me, by, was, will, for, ...) do not count as English, and the
+other list leaves out one-letter words and words shared with English. The app
+answers "English prose required" and does not count the check. Measured with
+`eval/language_check.mjs` (`eval/results/language_check.json`):
+
+| Text | Not scored |
+| --- | ---: |
+| Human writing in the 13 listed languages (3,513 paragraphs) | **100%** (before: 0%) |
+| Human writing in 8 languages not on the list: Afrikaans, Basque, Croatian, Danish, Finnish, Hungarian, Latvian, Romanian (2,233 paragraphs) | **99.8%**, each language at least 99.0% (before: 0%) |
+| English prose: essays, news, papers, reviews, web text, and non-native English (9 sources, 4,936 texts) | **0%** |
+| RAID and DetectRL English sets, including attacked texts (7,970 texts) | 0.6% |
+
+The RAID and DetectRL cases are texts that are not English prose at all:
+posts, poems, and articles in Spanish, Portuguese, Turkish, French, and Welsh
+filed in the English sets, ingredient lists, and degenerate repetition.
+
 ## Bands (technical read)
 
 The older pattern-signal scale maps the logit piecewise-linearly so that
@@ -191,7 +230,7 @@ most AI text in its lowest band.
 * It is a **pattern signal**, not a probability, not proof of authorship, and
   not suitable as the sole basis for any academic, employment, legal, or
   moderation decision. The app copy says so on every result.
-* It is English-only and tuned on research corpora from 2019–2024 models.
+* It is English-only (text mostly in another language is not scored) and tuned on research corpora from 2019–2024 models.
   Newer models, heavy human editing, deliberate style prompting, and
   paraphrasing reduce recall (see the RAID and OUTFOX rows).
 * The top band is conservative by design: it misses much AI text in exchange

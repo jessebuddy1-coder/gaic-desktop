@@ -1,0 +1,392 @@
+{
+ "engine": "gaic-text-v2.1",
+ "sets": {
+  "en:argugpt|plain": {
+   "n": 150,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:cheat|plain": {
+   "n": 300,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:detector-bias|plain": {
+   "n": 290,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:detectrl|plain": {
+   "n": 1950,
+   "notScored": 3,
+   "otherLanguage": 1,
+   "noEnglish": 2,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:ghostbuster|plain": {
+   "n": 1450,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:glimpse|plain": {
+   "n": 433,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:hart|plain": {
+   "n": 1200,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:imbd|plain": {
+   "n": 513,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:outfox|plain": {
+   "n": 300,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:alternative_spelling": {
+   "n": 467,
+   "notScored": 1,
+   "otherLanguage": 0,
+   "noEnglish": 1,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:article_deletion": {
+   "n": 506,
+   "notScored": 1,
+   "otherLanguage": 0,
+   "noEnglish": 1,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:homoglyph": {
+   "n": 480,
+   "notScored": 4,
+   "otherLanguage": 4,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:insert_paragraphs": {
+   "n": 499,
+   "notScored": 5,
+   "otherLanguage": 0,
+   "noEnglish": 5,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:number": {
+   "n": 519,
+   "notScored": 4,
+   "otherLanguage": 0,
+   "noEnglish": 4,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:paraphrase": {
+   "n": 237,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:perplexity_misspelling": {
+   "n": 492,
+   "notScored": 7,
+   "otherLanguage": 2,
+   "noEnglish": 5,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:synonym": {
+   "n": 493,
+   "notScored": 6,
+   "otherLanguage": 1,
+   "noEnglish": 5,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:upper_lower": {
+   "n": 505,
+   "notScored": 5,
+   "otherLanguage": 0,
+   "noEnglish": 5,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:whitespace": {
+   "n": 506,
+   "notScored": 6,
+   "otherLanguage": 1,
+   "noEnglish": 5,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|attack:zero_width_space": {
+   "n": 658,
+   "notScored": 2,
+   "otherLanguage": 2,
+   "noEnglish": 0,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "en:raid|plain": {
+   "n": 658,
+   "notScored": 5,
+   "otherLanguage": 1,
+   "noEnglish": 4,
+   "oldPassed": 0,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 0
+  },
+  "ud:afrikaans-afribooms": {
+   "n": 224,
+   "notScored": 223,
+   "otherLanguage": 223,
+   "noEnglish": 0,
+   "oldPassed": 224,
+   "oldLeanAi": 2,
+   "oldLeanHuman": 222
+  },
+  "ud:basque-bdt": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 4,
+   "noEnglish": 296,
+   "oldPassed": 300,
+   "oldLeanAi": 107,
+   "oldLeanHuman": 193
+  },
+  "ud:catalan-ancora": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 3,
+   "oldLeanHuman": 297
+  },
+  "ud:croatian-set": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 296,
+   "noEnglish": 4,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:czech-fictree": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:danish-ddt": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:dutch-alpino": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:english-ewt": {
+   "n": 300,
+   "notScored": 0,
+   "otherLanguage": 0,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 5,
+   "oldLeanHuman": 295
+  },
+  "ud:finnish-tdt": {
+   "n": 300,
+   "notScored": 297,
+   "otherLanguage": 6,
+   "noEnglish": 291,
+   "oldPassed": 300,
+   "oldLeanAi": 46,
+   "oldLeanHuman": 254
+  },
+  "ud:french-gsd": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:german-gsd": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 4,
+   "oldLeanHuman": 296
+  },
+  "ud:hungarian-szeged": {
+   "n": 209,
+   "notScored": 209,
+   "otherLanguage": 7,
+   "noEnglish": 202,
+   "oldPassed": 209,
+   "oldLeanAi": 9,
+   "oldLeanHuman": 200
+  },
+  "ud:indonesian-gsd": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 2,
+   "oldLeanHuman": 298
+  },
+  "ud:italian-isdt": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:latvian-lvtb": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 81,
+   "noEnglish": 219,
+   "oldPassed": 300,
+   "oldLeanAi": 1,
+   "oldLeanHuman": 299
+  },
+  "ud:polish-lfg": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 298,
+   "noEnglish": 2,
+   "oldPassed": 300,
+   "oldLeanAi": 30,
+   "oldLeanHuman": 270
+  },
+  "ud:portuguese-bosque": {
+   "n": 110,
+   "notScored": 110,
+   "otherLanguage": 110,
+   "noEnglish": 0,
+   "oldPassed": 110,
+   "oldLeanAi": 3,
+   "oldLeanHuman": 107
+  },
+  "ud:romanian-rrt": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:spanish-ancora": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:swedish-talbanken": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 300,
+   "noEnglish": 0,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:turkish-boun": {
+   "n": 300,
+   "notScored": 300,
+   "otherLanguage": 298,
+   "noEnglish": 2,
+   "oldPassed": 300,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 300
+  },
+  "ud:vietnamese-vtb": {
+   "n": 103,
+   "notScored": 103,
+   "otherLanguage": 103,
+   "noEnglish": 0,
+   "oldPassed": 103,
+   "oldLeanAi": 0,
+   "oldLeanHuman": 103
+  }
+ }
+}

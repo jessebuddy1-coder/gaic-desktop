@@ -103,6 +103,81 @@ test("explanations only cite measurements in their standalone direction", () => 
   }
 });
 
+// Short paragraphs written for these tests.
+const OTHER_LANGUAGES = {
+  spanish: "El pueblo donde crecí estaba al final de un camino de tierra, entre dos colinas cubiertas de olivos. Cada mañana mi abuela se levantaba antes del amanecer para preparar el pan, y el olor llenaba toda la casa. Los domingos íbamos a la plaza, donde los vecinos se reunían para hablar de la cosecha, del tiempo y de los hijos que se habían ido a la ciudad. Yo no entendía entonces por qué todos parecían tan tristes cuando hablaban de ellos. Ahora que vivo lejos, entiendo que lo que más se echa de menos no es el lugar, sino la manera en que el tiempo pasaba allí, despacio y sin prisa.",
+  french: "Le petit café au coin de la rue ouvre ses portes à six heures, bien avant que la ville ne se réveille. Le patron, un homme discret qui parle peu, prépare les croissants lui-même et les dispose dans la vitrine avec un soin presque maniaque. Les premiers clients sont toujours les mêmes : deux infirmières qui sortent de leur garde de nuit, un vieux monsieur qui lit le journal du début à la fin, et une étudiante qui révise ses cours en buvant un café noir. Personne ne se parle vraiment, mais tout le monde se salue, et cette politesse tranquille donne au matin quelque chose de rassurant.",
+  german: "Als wir im Herbst in die neue Wohnung zogen, war das Treppenhaus noch voller Kartons von den Nachbarn, die gerade ausgezogen waren. Die Wohnung selbst war hell und größer, als wir erwartet hatten, aber die Heizung funktionierte in den ersten Wochen nicht richtig. Jeden Abend saßen wir mit Decken auf dem Sofa und tranken Tee, während draußen der Regen gegen die Fenster schlug. Trotzdem erinnere ich mich gern an diese Zeit, weil wir damals noch nicht wussten, wie schnell sich alles ändern würde, und weil jeder kleine Fortschritt in der Wohnung sich wie ein großer Erfolg anfühlte.",
+  portuguese: "Quando cheguei a Lisboa pela primeira vez, a cidade pareceu-me enorme e confusa, cheia de ruas estreitas que subiam e desciam sem nenhuma lógica. Nos primeiros dias perdi-me várias vezes, mas as pessoas eram sempre simpáticas e explicavam o caminho com muita paciência. Aos poucos fui descobrindo os bairros, as pequenas lojas e os cafés onde os mesmos clientes se sentavam todas as tardes. Hoje, depois de tantos anos, ainda gosto de caminhar sem destino pela cidade, porque há sempre uma esquina que eu não conhecia e uma vista que me surpreende.",
+  italian: "Mia nonna aveva un piccolo orto dietro la casa, dove coltivava pomodori, zucchine e basilico. Ogni estate passavo lì due mesi interi, e la mattina la aiutavo a raccogliere le verdure prima che il sole diventasse troppo forte. Lei mi raccontava storie della sua giovinezza, della guerra e di come aveva conosciuto il nonno durante una festa del paese. Non sempre capivo tutto, ma mi piaceva ascoltare la sua voce mentre lavoravamo insieme. Ancora oggi, quando sento il profumo del basilico, penso a quelle mattine lente e tranquille.",
+  dutch: "Vorige zomer zijn we met de fiets langs de kust van Zeeland gereden. Het weer was wisselend, soms scheen de zon en een uur later regende het weer, maar dat maakte de tocht juist leuk. We sliepen op kleine campings en aten 's avonds meestal vis in een van de dorpjes aan het water. Mijn broer had een oude kaart meegenomen, omdat hij niet op zijn telefoon wilde vertrouwen, en daardoor zijn we een paar keer verkeerd gereden. Toch was het een van de mooiste weken van het jaar, en we willen het volgend jaar zeker nog een keer doen.",
+  polish: "Kiedy byłem dzieckiem, każde wakacje spędzałem u dziadków na wsi. Dziadek wstawał bardzo wcześnie i od razu szedł do ogrodu, a babcia przygotowywała śniadanie dla całej rodziny. Po południu chodziliśmy nad jezioro, gdzie kąpaliśmy się aż do wieczora. Nie było tam internetu ani telewizji, ale nigdy się nie nudziłem, bo zawsze było coś do zrobienia. Dziś, kiedy mieszkam w dużym mieście, często myślę o tamtych dniach i o tym, jak prosto wtedy wyglądało życie, i jak mało było nam potrzeba, żeby być szczęśliwym przez całe lato.",
+  turkish: "Geçen yıl yaz tatilinde ailemle birlikte Karadeniz'e gittik. Yollar çok uzundu ama manzara o kadar güzeldi ki yorgunluğu hiç hissetmedik. Her sabah küçük bir köyde kahvaltı yaptık ve yerel halkla sohbet ettik. İnsanlar çok misafirperverdi, bize çay ikram ettiler ve bölgenin tarihini anlattılar. Akşamları ise denizin kenarında yürüyüş yapıp günün nasıl geçtiğini konuştuk. Bu tatil bana, bazen en güzel anların plan yapmadan yaşandığını bir kez daha gösterdi ve bir sonraki yaz için de aynı yere gitmeye karar verdik.",
+  indonesian: "Setiap pagi, ibu saya bangun sebelum matahari terbit untuk menyiapkan sarapan bagi seluruh keluarga. Ia selalu memasak nasi goreng atau bubur, tergantung pada apa yang ada di dapur. Setelah itu, kami berangkat ke sekolah dengan berjalan kaki karena jaraknya tidak terlalu jauh dari rumah. Di jalan, kami sering bertemu dengan teman-teman dan tetangga yang juga akan pergi bekerja. Sekarang saya tinggal di kota lain, tetapi kebiasaan bangun pagi dan sarapan bersama keluarga masih saya pertahankan sampai hari ini.",
+};
+// Not in the function-word lists: caught because it has no English.
+const FINNISH = "Kesäisin perheemme vietti aina muutaman viikon mökillä järven rannalla. Isä lämmitti saunan joka ilta, ja me lapset uimme niin kauan, että huulet muuttuivat sinisiksi. Äiti keitti kahvia puuhellalla ja paisti pullaa, jonka tuoksu levisi koko pihalle. Päivisin kalastimme, poimimme mustikoita metsästä ja luimme vanhoja sarjakuvalehtiä, joita mökillä oli kokonainen pino. Vaikka mökillä ei ollut sähköä eikä juoksevaa vettä, muistan ne kesät elämäni onnellisimpina aikoina. Nykyään käyn siellä harvemmin, mutta joka kerta tunnen saman rauhan, kun istun laiturilla ja katselen tyyntä järveä illan hämärtyessä ja kuuntelen kaukaa kuuluvaa kaakkurin huutoa.";
+const ENGLISH_SAMPLES = {
+  austen: HUMAN,
+  essay: MACHINE,
+  nonNative: "In my opinion, the university students should to work part-time job during they study. First reason is money, because many student have not enough money for pay the rent and the food. Second, when student work, they learn how to manage the time and how to speak with the customers, it is very useful for the future job. For example my cousin was working in the restaurant two years and now he find a good job easy because he have experience. But also there is some problem, if student work too much hours, they are tired and they cannot study good for the exam. So I think it is good idea to work, but only few hours in the week.",
+  recipe: "Preheat the oven to 180 degrees and grease a round tin. In a large bowl, whisk the eggs with the sugar until pale and thick, then fold in the flour and a pinch of salt. Melt the butter in a small pan and let it cool for a minute before you stir it into the batter. Pour the mixture into the tin, smooth the top, and bake for about thirty minutes, until a skewer comes out clean. Leave the cake in the tin for ten minutes, then turn it out onto a rack. When it is cold, dust it with icing sugar or spread it with the jam of your choice.",
+  quotesSpanish: "My grandmother never learned much English, and she did not need to: everyone in the neighbourhood knew her. When I left for college she held my face in her hands and said, \"No te olvides de dónde vienes, y llama a tu madre todos los domingos.\" It means that I should not forget where I come from, and that I should call my mother every Sunday. I did not always manage the second part. But I have thought about the first part almost every day since, and I think it is the most useful advice anyone has given me, even though at the time I only rolled my eyes and promised to write.",
+};
+
+test("text mostly in another language is recognised; English, including non-native English, is not", () => {
+  for (const [name, text] of Object.entries(OTHER_LANGUAGES)) {
+    const r = E.languageCheck(text);
+    assert.equal(r.english, false, name + " " + JSON.stringify(r));
+    assert.equal(r.reason, "other-language", name);
+  }
+  const finnish = E.languageCheck(FINNISH);
+  assert.equal(finnish.english, false, JSON.stringify(finnish));
+  assert.equal(finnish.reason, "no-english");
+  for (const [name, text] of Object.entries(ENGLISH_SAMPLES)) {
+    const r = E.languageCheck(text);
+    assert.equal(r.english, true, name + " " + JSON.stringify(r));
+    assert.equal(r.reason, "");
+  }
+});
+
+test("disguise tricks cannot turn English into a refusal", () => {
+  const lookalikes = { a: "\u0430", e: "\u0435", o: "\u043e", c: "\u0441", p: "\u0440" };
+  const disguised = MACHINE.replace(/[aeocp]/g, (ch) => lookalikes[ch]);
+  assert.equal(E.languageCheck(disguised).english, true);
+  const zeroWidth = MACHINE.split("").join("\u200b");
+  assert.equal(E.languageCheck(zeroWidth).english, true);
+  // A list with no function words at all reads as no English only when undisguised.
+  const list = Array.from({ length: 40 }, (_, i) => (i + 1) + " cup chopped fresh parsley").join("\n");
+  assert.equal(E.languageCheck(list).reason, "no-english");
+  assert.equal(E.languageCheck(list.replace(/e/g, "\u0435")).english, true);
+});
+
+test("the app turns text in another language away before the English model scores it", () => {
+  const code = "(function (global) {" +
+    appSection("  const MIN_TEXT_CHARACTERS = 1000;", "  function analyticsTrack") +
+    appSection("  // ---------- decisive result layer ----------", "  function setCheckButtonLabel") +
+    appSection("  const FORMULAIC_PHRASES", "  // ---------- friendly one-liner") +
+    "\nglobalThis.analyzeText = analyzeText;\n})(globalThis);";
+  const ctx = loadScript("text-detector.js");
+  vm.runInContext(code, ctx);
+  for (const [name, text] of Object.entries(OTHER_LANGUAGES)) {
+    const r = ctx.analyzeText(text + "\n\n" + text);
+    assert.equal(r.kind, "error", name);
+    assert.equal(r.verdict, "English prose required", name);
+    assert.match(r.explain, /mostly another language/);
+    assert.equal(r.countsTowardLimit, false);
+    assert.equal(r.score, null);
+  }
+  const finnish = ctx.analyzeText(FINNISH + "\n\n" + FINNISH);
+  assert.equal(finnish.verdict, "English prose required");
+  assert.match(finnish.explain, /almost none of the common words of English prose/);
+  for (const [name, text] of Object.entries(ENGLISH_SAMPLES)) {
+    const r = ctx.analyzeText(text + "\n\n" + text);
+    assert.equal(r.kind, "text", name + ": " + r.verdict);
+  }
+});
+
 test("long documents are scored in bounded passages", () => {
   const long = Array.from({ length: 200 }, () => HUMAN).join("\n\n");
   const r = E.analyze(long);

@@ -633,6 +633,71 @@
       : null;
   }
 
+  // ---------- language check ----------
+  // The model was trained on English prose only, and text in another language
+  // gets a confident-looking but meaningless score. Two tests on the commonest
+  // short words, after normalize():
+  //   - mostly another language: at least 12 frequent function words of widely
+  //     used Latin-script languages, and more than twice as many as English
+  //     ones;
+  //   - no English: fewer than 3% English function words in 80 or more words,
+  //     which catches languages the list does not cover (and lists such as a
+  //     recipe's ingredients, which are not prose either). Text carrying
+  //     disguise tricks skips this test, so hiding letters cannot turn a check
+  //     into a refusal.
+  // English function words that are also common words elsewhere (a, i, in, is,
+  // on, to, do, no, me, by, was, will, for, ...) do not count as English, and
+  // the other list leaves out one-letter words and words shared with English.
+  // Measured on Universal Dependencies treebanks in 21 languages and on the
+  // English evaluation corpora; see models/GAIC-TEXT-MODEL.md.
+  const ENGLISH_WORDS = new Set((
+    "the of and that it with be you are this have from or not but they his her she we were which there " +
+    "been their one would can more if when what who about out up them into than then some its only other " +
+    "could these two may first any new our like just did how your very because most such where after " +
+    "those being should through even much many before between both each here own while same why does him " +
+    "us too few again against during without within upon don't it's i'm can't won't didn't doesn't isn't " +
+    "i've i'll i'd you're they're we're that's there's let's what's he's she's"
+  ).split(" "));
+  // Spanish, French, German, Italian, Portuguese, Dutch, Catalan, Polish,
+  // Czech, Swedish, Indonesian, Turkish, and Vietnamese.
+  const OTHER_LANGUAGE_WORDS = new Set((
+    "de la que el en los del se las por un para una su al lo como más pero sus le este sí porque esta " +
+    "entre cuando muy sobre también hasta donde quien desde todo nos durante todos uno les ni contra " +
+    "otros ese eso ellos esto mí antes algunos qué unos yo otro otras otra él tanto esa estos mucho " +
+    "quienes muchos cual poco ella estar estas algunas nosotros es fue ha está ser había fueron puede " +
+    "según tiene hace des et est du une qui dans pas au sur ne ce il sont avec ou mais comme sa ses aux " +
+    "elle nous vous ils été être cette ont fait leur très bien où peut aussi même deux der und von zu das " +
+    "sich auf für ist im nicht ein eine auch werden er dass sie nach wird bei einer um sind noch wie " +
+    "einem über einen zum haben nur oder aber vor zur mehr durch sein wurde sei wir ich ihr ihre di che " +
+    "della sono dei gli più anche nel alla ma delle questo si con da loro essere stato hanno degli nella " +
+    "sua suo em uma não na mas foi ao ele tem seu quando muito há já eu também só pelo pela até isso ela " +
+    "depois sem mesmo aos ter seus quem nas esse eles você essa nem suas meu minha dos een het niet zijn " +
+    "aan voor maar om zou wat mijn dit zo ze zich bij ook je uit daar haar naar heb heeft hebben deze nog " +
+    "zal zij nu geen omdat iets worden toch waren veel meer toen moet zonder kan hun dus werd wordt ik te " +
+    "dat van amb els va més dels però són seva się nie że jest jak po tak za od już jego jej przez dla " +
+    "czy być tylko oraz tym może był są które który jako jsem jsou jeho bylo byl jen už když ve mi ho " +
+    "jsme také nebo podle och att det som på är för har inte ett han var jag från vi så när år hon också " +
+    "efter eller där vid mot ska skulle kommer ut får finns vara hade andra mycket än här då sedan över " +
+    "bara blir upp yang dan ke dari ini itu dengan untuk pada adalah dalam tidak akan juga oleh ada atau " +
+    "sebagai karena telah saya kami mereka dia ia bisa sudah lebih tersebut hanya antara bahwa seperti " +
+    "harus masih sangat bir bu için ile çok gibi daha olarak kadar sonra şey ben ki olan değil của và là " +
+    "có được trong cho với các những một này không người đã để khi thì đến về từ ra cũng như sẽ tại nhiều " +
+    "hơn nhưng"
+  ).split(" "));
+  const LATIN_WORD_RE = /[a-z\u00c0-\u024f\u1e00-\u1eff']+/g;
+
+  function languageCheck(input) {
+    const words = normalize(input).toLowerCase().match(LATIN_WORD_RE) || [];
+    let english = 0, other = 0;
+    for (const word of words) {
+      if (ENGLISH_WORDS.has(word)) english += 1;
+      else if (OTHER_LANGUAGE_WORDS.has(word)) other += 1;
+    }
+    const reason = other >= 12 && other > 2 * english ? "other-language"
+      : words.length >= 80 && english < 0.03 * words.length && !disguiseCounts(input) ? "no-english" : "";
+    return Object.freeze({ english: !reason, reason, words: words.length, englishWords: english, otherLanguageWords: other });
+  }
+
   function scoreText(input) {
     if (!MODEL) return null;
     const text = normalize(input);
@@ -747,6 +812,7 @@
     scoreText,
     machineLikeSection,
     disguiseCounts,
+    languageCheck,
     get model() { return MODEL; },
   });
 })(typeof window !== "undefined" ? window : globalThis);

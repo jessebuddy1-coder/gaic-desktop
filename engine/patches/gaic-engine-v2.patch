@@ -39,7 +39,7 @@ index 2151026..dcb0c84 100644
  <script src="onnx-detector.js"></script>
  <script type="module" src="c2pa-verifier.mjs"></script>
 diff --git a/app.js b/app.js
-index 19041e1..8f922c0 100644
+index 19041e1..2c5399c 100644
 --- a/app.js
 +++ b/app.js
 @@ -13,13 +13,10 @@
@@ -315,7 +315,7 @@ index 19041e1..8f922c0 100644
          explain: "GAIC does not score text below " + MIN_TEXT_CHARACTERS.toLocaleString() +
            " characters because short-text detection is especially unreliable. Current sample: " +
            text.length.toLocaleString() + " characters.",
-@@ -434,18 +612,25 @@
+@@ -434,18 +612,38 @@
      }
      const sentences = text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
      if (sentences.length < 3) {
@@ -331,6 +331,19 @@ index 19041e1..8f922c0 100644
 -        explain: "This experimental pattern review only supports English prose. GAIC will not invent a score for a sample it is not designed to assess.",
 +      return { kind: "error", score: null, verdict: "English prose required",
 +        explain: "The text model only supports English prose, so this sample was not scored.",
++        guidance: "Review the original source, drafts, citations, and document history instead.",
++        countsTowardLimit: false };
++    }
++    // Text in another Latin-script language (Spanish, French, German, ...) got
++    // past the letter check above and was scored by the English model.
++    const engine = global.AICheckTextEngine;
++    let language = null;
++    try { language = engine && typeof engine.languageCheck === "function" ? engine.languageCheck(t) : null; } catch (_) { language = null; }
++    if (language && language.english === false) {
++      return { kind: "error", score: null, verdict: "English prose required",
++        explain: language.reason === "other-language"
++          ? "This text reads as mostly another language. GAIC's text model was trained on English prose only, so this sample was not scored."
++          : "This sample has almost none of the common words of English prose. It may be in another language or be mostly a list, and GAIC's text model reads English prose only, so it was not scored.",
          guidance: "Review the original source, drafts, citations, and document history instead.",
          countsTowardLimit: false };
      }
@@ -344,7 +357,7 @@ index 19041e1..8f922c0 100644
      const lens = sentences.map(s => s.split(/\s+/).length);
      const mean = lens.reduce((a, b) => a + b, 0) / lens.length;
      const variance = lens.reduce((a, b) => a + (b - mean) ** 2, 0) / lens.length;
-@@ -475,11 +660,14 @@
+@@ -475,11 +673,14 @@
      else if (score < 66) verdict = "Mixed writing patterns";
      else verdict = "Several formulaic patterns matched";
      note = `Descriptive components — sentence-length similarity ${(burstiness*100|0)}/100, vocabulary-repetition cue ${(diversitySignal*100|0)}/100, contraction-use cue ${(contractionSignal*100|0)}/100, and ${hits} formulaic phrase match${hits===1?"":"es"}. ` +
@@ -362,7 +375,7 @@ index 19041e1..8f922c0 100644
    }
  
    // ---------- friendly one-liner about the checked media ----------
-@@ -523,6 +711,7 @@
+@@ -523,6 +724,7 @@
      "lower-center": "lower center",
      "middle-center": "middle center",
      "compatibility-frame": "compatibility frame",
@@ -370,7 +383,7 @@ index 19041e1..8f922c0 100644
    });
  
    // The worker is same-origin, but treat its diagnostics as untrusted structured
-@@ -640,6 +829,111 @@
+@@ -640,6 +842,111 @@
    }
  
    // ---------- IMAGE: Content Credentials (C2PA) + metadata read ----------
@@ -482,7 +495,7 @@ index 19041e1..8f922c0 100644
    async function analyzeImage(file, sourceContextValue) {
      const derivedFromHEIF = !!(file && file.aicheckInputContext === "heif-derived-jpeg");
      // Any locally re-encoded input invalidates container evidence, because the
-@@ -652,6 +946,7 @@
+@@ -652,6 +959,7 @@
        file.aicheckInputContext === "device-capture-derived-jpeg"
      ));
      const buf = new Uint8Array(await file.arrayBuffer());
@@ -490,7 +503,7 @@ index 19041e1..8f922c0 100644
      const dims = imageDimensions(buf);
      const geometryError = imageGeometryError(dims);
      if (geometryError) {
-@@ -676,7 +971,14 @@
+@@ -676,7 +984,14 @@
      // not anywhere in the raw byte stream (which produces false positives when
      // ordinary image bytes happen to contain a substring like "imagen").
      let generatorTextKeys = [];
@@ -506,7 +519,7 @@ index 19041e1..8f922c0 100644
  
      let provenance = derivedFromHEIF
        ? { status: "unsupported", sourceClass: "unknown" }
-@@ -686,6 +988,7 @@
+@@ -686,6 +1001,7 @@
        // manifest, signature and asset binding locally. Its remote-manifest
        // fetch is disabled in c2pa-verifier.mjs, so a file cannot make this
        // check contact an address embedded inside it.
@@ -514,7 +527,7 @@ index 19041e1..8f922c0 100644
        const checked = await window.C2PAVerifier.verify(file);
        provenance = checked && typeof checked.status === "string"
          ? checked
-@@ -702,6 +1005,7 @@
+@@ -702,6 +1018,7 @@
          typeof window.ContainerProvenance.readContainerStructure === "function" &&
          window.ProvenanceVerdict &&
          typeof window.ProvenanceVerdict.gradeEncoderStructure === "function") {
@@ -522,7 +535,7 @@ index 19041e1..8f922c0 100644
        try {
          const structure = window.ContainerProvenance.readContainerStructure(buf, {
            xmpText: meta.metaText || "",
-@@ -727,7 +1031,8 @@
+@@ -727,7 +1044,8 @@
      let score = null, rawModelScore = null, metricLabel = "Image-model score";
      let imageRegionScores = [];
      let uncalibratedCompositeFrame = false;
@@ -532,7 +545,7 @@ index 19041e1..8f922c0 100644
      if (derivedFromHEIF) {
        parts.push("Original HEIC/HEIF limit: GAIC made a bounded JPEG derivative locally for the visual model. The original file's Content Credentials and EXIF/XMP metadata were not evaluated, and their presence or absence cannot be inferred from this derivative.");
      } else if (locallyDerived) {
-@@ -740,12 +1045,12 @@
+@@ -740,12 +1058,12 @@
        parts.push("Content Credentials: provenance data was found but failed validation. Do not rely on its claims; the file may be damaged, altered after signing, malformed, or use a credential this validator cannot verify.");
      } else if (provenance.status === "unavailable") {
        parts.push(hasC2PA
@@ -548,7 +561,7 @@ index 19041e1..8f922c0 100644
      } else {
        parts.push("Content Credentials: none detected. Credentials are optional and can be removed, so absence says nothing about whether an image is trustworthy.");
      }
-@@ -775,9 +1080,20 @@
+@@ -775,9 +1093,20 @@
          (generatorTextKeys.length === 1 ? " " : "s ") + generatorTextKeys.join(", ") +
          ", which generation tools write to record their own settings. The chunk is editable and " +
          "can be copied onto another file, so verify the original before relying on it.");
@@ -569,7 +582,7 @@ index 19041e1..8f922c0 100644
      if (sourceContext) {
        parts.push(sourceContext.knownGenerator
          ? "Source context: you said this came from " + sourceContext.hostname +
-@@ -788,70 +1104,66 @@
+@@ -788,70 +1117,66 @@
      }
      if (isGif) parts.push("Animated-image limit: a GIF is checked as one decoded frame. Other animation frames are not analyzed; export representative still frames for a broader review.");
  
@@ -680,7 +693,7 @@ index 19041e1..8f922c0 100644
      if (rawModelScore == null) {
        const configured = !!(window.AICHECK_ONNX && window.AICHECK_ONNX.model);
        const boundedModelError =
-@@ -860,36 +1172,51 @@
+@@ -860,36 +1185,51 @@
            ? window.OnnxDetector.lastError.slice(0, 300)
            : "";
        parts.push((configured
@@ -759,7 +772,7 @@ index 19041e1..8f922c0 100644
      }
  
      if (evidence) {
-@@ -900,12 +1227,23 @@
+@@ -900,12 +1240,23 @@
          if (parts.indexOf(limit) === -1) parts.push(limit);
        }
      } else {
@@ -770,8 +783,9 @@ index 19041e1..8f922c0 100644
 +        ? imageSignalVerdict(evidenceInput.pixel.rawScore)
 +        : "No origin record or metadata clue found";
 +      parts.push("Evidence ordering unavailable on this device; this result is based on the pixel scan alone.");
-+    }
-+
+     }
+ 
+-    return { kind: "image", score, metricLabel, verdict, explain: parts.join("\n"),
 +    if (!decision) {
 +      // Nothing to decide from: the model did not run and no origin clue was
 +      // found. That is a failed check, not a verdict, and it is not counted.
@@ -780,14 +794,13 @@ index 19041e1..8f922c0 100644
 +        provenanceStatus: provenance.status,
 +        guidance: "Try again, or try a JPEG or PNG copy of the image. This failed check did not use a free check.",
 +        countsTowardLimit: false };
-     }
- 
--    return { kind: "image", score, metricLabel, verdict, explain: parts.join("\n"),
++    }
++
 +    const imageResult = { kind: "image", score, metricLabel, verdict, explain: parts.join("\n"),
        provenanceStatus: provenance.status,
        evidenceTier: evidence ? evidence.tier : null,
        evidenceBand: evidence ? evidence.band : null,
-@@ -924,7 +1262,18 @@
+@@ -924,7 +1275,18 @@
        } : null,
        mediaSummary: describeMedia(file, dims, derivedFromHEIF ? null : (meta.exif || null),
          derivedFromHEIF ? "converted locally from HEIC/HEIF" : null),
@@ -807,7 +820,7 @@ index 19041e1..8f922c0 100644
    }
  
    /* ================ BEGIN ON-DEVICE-ONLY (video + screen scan) ================
-@@ -940,6 +1289,7 @@
+@@ -940,6 +1302,7 @@
    }
  
    function showProgress(text, fraction) {
@@ -815,7 +828,7 @@ index 19041e1..8f922c0 100644
      const wrap = $("scan-progress"), bar = $("scan-progress-bar"),
        track = $("scan-progress-track"), label = $("scan-progress-text");
      if (!wrap) return;
-@@ -1032,9 +1382,9 @@
+@@ -1032,9 +1395,9 @@
      } else if (provenance.status === "invalid") {
        lines.push("Content Credentials: provenance data was found but failed validation. Do not rely on its claims; the file may be damaged, altered after signing, malformed, or use a credential this validator cannot verify.");
      } else if (provenance.status === "unavailable") {
@@ -827,7 +840,7 @@ index 19041e1..8f922c0 100644
      } else {
        lines.push("Content Credentials: none detected. Credentials are optional and can be removed, so absence says nothing about whether a video is trustworthy or AI-generated.");
      }
-@@ -1049,9 +1399,9 @@
+@@ -1049,9 +1412,9 @@
      } else if (provenance.status === "valid") {
        verdict = "Valid Content Credential — signer trust not established";
      } else if (provenance.status === "unavailable") {
@@ -839,7 +852,7 @@ index 19041e1..8f922c0 100644
      }
  
      if (!validatedAi && provenance.sourceClass === "capture") {
-@@ -1062,8 +1412,60 @@
+@@ -1062,8 +1425,60 @@
      return { status: provenance.status, sourceClass: provenance.sourceClass, verdict, lines };
    }
  
@@ -900,7 +913,7 @@ index 19041e1..8f922c0 100644
    function frameToFile(video, cv, frameNumber) {
      return new Promise((resolve) => {
        try {
-@@ -1073,19 +1475,26 @@
+@@ -1073,19 +1488,26 @@
          cv.width = Math.max(1, Math.round(vw * scale));
          cv.height = Math.max(1, Math.round(vh * scale));
          cv.getContext("2d").drawImage(video, 0, 0, cv.width, cv.height);
@@ -928,7 +941,7 @@ index 19041e1..8f922c0 100644
        const loaded = await new Promise((resolve) => {
          const timer = setTimeout(() => resolve(false), 15000);
          video.onloadedmetadata = () => { clearTimeout(timer); resolve(true); };
-@@ -1108,12 +1517,19 @@
+@@ -1108,12 +1530,19 @@
        }
        if (!loaded || !isFinite(duration) || duration <= 0) {
          if (["trusted", "valid", "invalid"].includes(provenance.status)) {
@@ -954,7 +967,7 @@ index 19041e1..8f922c0 100644
          }
          return { kind: "error", score: null, verdict: "Couldn't read this video",
            explain: provenanceEvidence.lines.concat(["This device couldn't decode the video or read its duration. Try a standard MP4 (H.264) or WebM file. Nothing was uploaded."]).join("\n"),
-@@ -1125,39 +1541,57 @@
+@@ -1125,39 +1554,57 @@
        announce("Checking video — analyzing " + total + " frames on this device.", true);
        const cv = document.createElement("canvas");
        const frameScores = [];
@@ -1024,7 +1037,7 @@ index 19041e1..8f922c0 100644
          }
          return { kind: "error", score: null, verdict: "Video frames couldn't be scored",
            explain: provenanceEvidence.lines.concat(["None of the requested seeks produced a confirmed, model-scored still frame. No score was invented, and nothing left your device."]).join("\n"),
-@@ -1166,12 +1600,14 @@
+@@ -1166,12 +1613,14 @@
            countsTowardLimit: false };
        }
        // Honest aggregation: median (typical frame) + max (worst frame). One
@@ -1045,7 +1058,7 @@ index 19041e1..8f922c0 100644
        const modelVerdict = frameSignal.verdict;
        const verdict = provenanceEvidence.verdict || modelVerdict;
        const perFrame = frameNotes
-@@ -1182,15 +1618,20 @@
+@@ -1182,15 +1631,20 @@
            (duration > VIDEO_SCAN_WINDOW_SECONDS ? " (long video: only the first " + fmtClock(VIDEO_SCAN_WINDOW_SECONDS) + " is sampled)" : "") +
            ", all on your device. A video check counts as one check against the free weekly allowance.",
          perFrame,
@@ -1069,7 +1082,7 @@ index 19041e1..8f922c0 100644
      } finally {
        hideProgress();
        try { video.removeAttribute("src"); video.load(); } catch (e) {}
-@@ -1205,6 +1646,9 @@
+@@ -1205,6 +1659,9 @@
    // Safari, Android/iOS WebView shells), it explains the screenshot fallback
    // that hands the screenshot to the existing photo picker instead.
    async function scanScreen() {
@@ -1079,7 +1092,7 @@ index 19041e1..8f922c0 100644
      switchTab("image");
      if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
        const how = "Screen capture isn't available in this browser or app — iPhone/iPad and most in-app views don't offer it. " +
-@@ -1271,17 +1715,27 @@
+@@ -1271,17 +1728,27 @@
          cleanup();
          resolve(frames.filter(Boolean));
        };
@@ -1111,7 +1124,7 @@ index 19041e1..8f922c0 100644
          } catch (e) { done(null); }
        });
        let sampler = 0;
-@@ -1329,39 +1783,85 @@
+@@ -1329,39 +1796,85 @@
        maxRaw,
        median: Math.floor(medianRaw + Number.EPSILON),
        maxScore: Math.floor(maxRaw + Number.EPSILON),
@@ -1207,7 +1220,7 @@ index 19041e1..8f922c0 100644
      const valid = scores.filter((s) => Number.isFinite(s));
      if (!valid.length) {
        return { kind: "error", score: null, verdict: "Screen frames couldn't be scored",
-@@ -1369,11 +1869,12 @@
+@@ -1369,11 +1882,12 @@
          guidance: "Try again on a screen with more visible content. This failed check did not use a free check.",
          countsTowardLimit: false };
      }
@@ -1224,7 +1237,7 @@ index 19041e1..8f922c0 100644
        kind: "video",
        score: frameSignal.score,
        metricLabel: "Median frame-model score",
-@@ -1382,12 +1883,17 @@
+@@ -1382,12 +1896,17 @@
          "Screen capture: " + valid.length + " of " + total + " frames sampled across about " +
            SCREEN_CAPTURE_SECONDS + " seconds of the surface you chose, all on your device. Sharing stopped as soon as the capture finished, nothing was recorded to a file, and a screen check counts as one check against the free weekly allowance.",
          perFrame,
@@ -1245,7 +1258,7 @@ index 19041e1..8f922c0 100644
    }
  
    // Screen capture runs its own check: the frames already exist, so it does not
-@@ -1412,7 +1918,7 @@
+@@ -1412,7 +1931,7 @@
          }
        }
        analyticsTrack("check_started", "screen");
@@ -1254,7 +1267,7 @@ index 19041e1..8f922c0 100644
        analyzingSince = Date.now();
        await paintGate();
        const out = await analyzeScreenFrames(frames);
-@@ -1793,6 +2299,15 @@
+@@ -1793,6 +2312,15 @@
            if (count > 0) out.hasMakerNote = true;
            continue;
          }
@@ -1270,7 +1283,7 @@ index 19041e1..8f922c0 100644
          if (ASCII_TAGS[tag]){
            const text = exifAscii(b, t, e, le, type, count);
            if (text && out[ASCII_TAGS[tag]] === undefined) out[ASCII_TAGS[tag]] = text;
-@@ -2652,25 +3167,25 @@
+@@ -2652,25 +3180,25 @@
    }
  
    // ---------- friendly result voice ----------
@@ -1305,7 +1318,7 @@ index 19041e1..8f922c0 100644
      "Provenance data found — not validated": "Creation-history data was found, but it could not be validated",
      "Camera metadata found — not proof": "Camera details were found in the file — useful context, not proof",
      // Provenance-first tiers. Each names the evidence found and stops there:
-@@ -2679,10 +3194,11 @@
+@@ -2679,10 +3207,11 @@
      "Corroborating camera metadata — not proof": "Several camera details agree with each other — supporting context, not proof",
      "Camera metadata and write structure agree — not proof": "Camera details and how the file was saved both point the same way — still not proof",
      "Metadata declares AI origin — unsigned": "The file's own labels say it was AI-made, but nothing signed that claim",
@@ -1318,7 +1331,7 @@ index 19041e1..8f922c0 100644
      "Cloud model signal returned — verify": "The optional cloud scan returned a warning signal — check the original source",
      // text
      "Few formulaic patterns matched": "Few common AI-style writing patterns were found",
-@@ -2690,12 +3206,16 @@
+@@ -2690,12 +3219,16 @@
      "Several formulaic patterns matched": "Several common AI-style writing patterns were found — review the text closely",
      // video
      "High model signal in sampled frames — verify": "Strong AI warning signs were found in sampled frames — check the source",
@@ -1336,7 +1349,7 @@ index 19041e1..8f922c0 100644
    };
    function friendlyVerdict(verdict) {
      return FRIENDLY_VERDICTS[verdict] || null;
-@@ -2725,12 +3245,16 @@
+@@ -2725,12 +3258,16 @@
    }
  
    function resultMetric(out) {
@@ -1355,7 +1368,7 @@ index 19041e1..8f922c0 100644
      if (out.kind === "text") return "Pattern signal: " + out.score + "/100";
      if (out.kind === "image" || out.kind === "video") {
        return "Warning signal: " + out.score + "/100";
-@@ -2739,17 +3263,25 @@
+@@ -2739,17 +3276,25 @@
    }
  
    function plainResultCopy(out) {
@@ -1386,7 +1399,7 @@ index 19041e1..8f922c0 100644
      }
      if (verdict === "Generator-site source supplied — verify output") {
        return "The source you entered is a site with AI-generation tools. Confirm that this exact image came from that page.";
-@@ -2766,19 +3298,21 @@
+@@ -2766,19 +3311,21 @@
      if (verdict === "Content Credential failed validation") {
        return "The signed creation record did not pass validation. Do not rely on its claims.";
      }
@@ -1413,7 +1426,7 @@ index 19041e1..8f922c0 100644
      }
      if (verdict === "Camera metadata and write structure agree — not proof") {
        return "The camera details agree with each other, and the way the file was saved also matches a camera. " +
-@@ -2789,6 +3323,10 @@
+@@ -2789,6 +3336,10 @@
        return "The file's own labels say it was AI-generated. Nothing signed that label, so it could have been " +
          "written or copied by anyone — but a file rarely claims this about itself without reason.";
      }
@@ -1424,7 +1437,7 @@ index 19041e1..8f922c0 100644
      if (verdict === "Edit history records a generative step") {
        return "The file's edit history mentions an AI editing step. That means AI touched part of this image, " +
          "not necessarily that the whole picture was generated. The history is editable and can be removed.";
-@@ -2797,10 +3335,9 @@
+@@ -2797,10 +3348,9 @@
        return "The way this file was written matches a save path GAIC associates with AI tools. This describes " +
          "the file, not the picture, and re-saving any image through the same tool would look identical.";
      }
@@ -1438,7 +1451,7 @@ index 19041e1..8f922c0 100644
      }
      if (verdict === "Container was rewritten — origin unrecoverable") {
        return "This file was re-saved somewhere along the way — usually by a phone gallery, a messaging app, or " +
-@@ -2819,21 +3356,36 @@
+@@ -2819,21 +3369,36 @@
      if (verdict === "High model signal in sampled frames — verify") {
        return "GAIC found strong AI warning signs in the sampled video or screen frames. It did not analyze every frame, audio, or full motion.";
      }
@@ -1480,7 +1493,7 @@ index 19041e1..8f922c0 100644
        primaryResultMetric(out),
        plainResultCopy(out)
      ];
-@@ -2870,12 +3422,13 @@
+@@ -2870,12 +3435,13 @@
      const kindLabels = { text: "Text scan", image: "Photo scan",
        video: "Video-frame scan", error: "Scan status" };
      if (kindEl) kindEl.textContent = kindLabels[out.kind] || "GAIC result";
@@ -1497,7 +1510,7 @@ index 19041e1..8f922c0 100644
      }
      const descEl = $("content-desc");
      if (descEl) {
-@@ -2883,11 +3436,12 @@
+@@ -2883,11 +3449,12 @@
        descEl.textContent = out.mediaSummary || "";
      }
      if (summaryEl) summaryEl.textContent = plainResultCopy(out);
@@ -1513,7 +1526,7 @@ index 19041e1..8f922c0 100644
        if (barEl) barEl.style.width = "0%";
        if (meterEl) meterEl.hidden = true;
      } else {
-@@ -2896,7 +3450,7 @@
+@@ -2896,7 +3463,7 @@
        if (barEl) barEl.style.width = pct + "%";
        if (meterEl) {
          meterEl.hidden = false;
@@ -1522,7 +1535,7 @@ index 19041e1..8f922c0 100644
        }
      }
      if (explainEl) explainEl.textContent = out.explain;
-@@ -2928,12 +3482,12 @@
+@@ -2928,12 +3495,12 @@
      } catch (e) {}
    }
    function announceResult(out) {
@@ -1537,7 +1550,7 @@ index 19041e1..8f922c0 100644
    }
  
    function readResult() {
-@@ -2973,36 +3527,43 @@
+@@ -2973,36 +3540,43 @@
      }
    }
  
@@ -1603,7 +1616,7 @@ index 19041e1..8f922c0 100644
    }
    // A real analysis does not take the same time twice. Vary the floor per run
    // so the scan reads as work rather than a fixed canned pause.
-@@ -3025,48 +3586,508 @@
+@@ -3025,48 +3599,508 @@
        setTimeout(finish, 250); // never stall a check on a hidden tab
      });
    }
@@ -2137,7 +2150,7 @@ index 19041e1..8f922c0 100644
    async function finishAnalyzing(since, kind) {
      if (!since) return;
      const reduced = prefersReducedMotion();
-@@ -3074,9 +4095,14 @@
+@@ -3074,9 +4108,14 @@
      const minShow = analyzeTargetMs || (reduced ? 350 : kind === "text" ? 1300 : 2600);
      const left = minShow - (Date.now() - since);
      if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
@@ -2154,7 +2167,7 @@ index 19041e1..8f922c0 100644
      if (!reduced) await new Promise((resolve) => setTimeout(resolve, 320));
      setAnalyzing(false);
    }
-@@ -3123,14 +4149,16 @@
+@@ -3123,14 +4162,16 @@
          checkStarted = true;
          analyticsTrack("check_started", analyticsMode);
          setAnalyzing(true, "text");
@@ -2172,7 +2185,7 @@ index 19041e1..8f922c0 100644
          analyzingSince = Date.now();
          if (!isVideoFile(pickedFile)) {
            // Capture this check's one-time consent and verified entitlement
-@@ -3212,6 +4240,8 @@
+@@ -3212,6 +4253,8 @@
        });
        // A normal file choice pauses for review before consuming a free check.
        // The explicit Quick Scan shortcut may opt into immediate analysis.
@@ -2181,7 +2194,7 @@ index 19041e1..8f922c0 100644
        input.addEventListener("change", e => {
          const f = e.target.files && e.target.files[0];
          const shouldRun = autoRunAfterPick;
-@@ -3225,6 +4255,7 @@
+@@ -3225,6 +4268,7 @@
        ["dragover","dragenter"].forEach(ev => drop.addEventListener(ev, e => {
          e.preventDefault(); drop.classList.add("is-dragging");
        }));
@@ -2189,7 +2202,7 @@ index 19041e1..8f922c0 100644
        ["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {
          e.preventDefault(); drop.classList.remove("is-dragging");
        }));
-@@ -3480,7 +4511,8 @@
+@@ -3480,7 +4524,8 @@
        normalizeImageRegionScores, isScreenCaptureLikeFrame, frameLayoutContext,
        normalizeSourceContext,
        seekVideo, sanitizeVideoProvenance, verifyVideoProvenance, videoProvenanceEvidence,
@@ -3427,10 +3440,10 @@ index d0e5ef6..40f2930 100644
  Nonescape Mini v0 was evaluated as a possible separate local signal after the
 diff --git b/models/GAIC-TEXT-MODEL.md b/models/GAIC-TEXT-MODEL.md
 new file mode 100644
-index 0000000..96b888d
+index 0000000..4cb27cb
 --- /dev/null
 +++ b/models/GAIC-TEXT-MODEL.md
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,248 @@
 +# GAIC Text Model v2 — provenance, evaluation, and limitations
 +
 +`text-detector.js` replaces the four-feature hand-tuned text heuristic that
@@ -3442,7 +3455,7 @@ index 0000000..96b888d
 +| File | `text-detector.js` (engine and weights in one file, ~75 KB) |
 +| Model | logistic regression, 56 stylometric measurements + 2,500-term lexicon |
 +| Version string | `GAIC Text Model v2 (2026-09)`, engine `gaic-text-v2.1` (adds the decision below) |
-+| Input | English prose that already passed the app's gates (≥1,000 characters, ≥3 sentences, ≥70% English word tokens) |
++| Input | English prose that already passed the app's gates (≥1,000 characters, ≥3 sentences, ≥70% of words written in English letters, and the language check below) |
 +| Output | a **lean** (AI-written or human-written), a **confidence level** (high, medium, low), and an estimated **AI likelihood** (1–99%), plus the technical band and the measurements that drove it |
 +| Scoring unit | sentence-aligned passages of ~260 words; the document score is the word-weighted mean of passage logits (at most 64 passages) |
 +
@@ -3573,6 +3586,45 @@ index 0000000..96b888d
 +and homoglyph attacks were noticed in 100% and 99.8% of texts. Their plain
 +versions and the 3,401 held-out human documents triggered it 0% of the time.
 +
++## Other languages
++
++The model was trained on English only. The app's letter test (at least 70% of
++words written in the letters a–z) turned away Chinese, Arabic, or Cyrillic
++text, but Spanish, German, or Polish passed it, and the English model scored
++them. On human writing from Universal Dependencies treebanks (paragraphs of
++1,200 or more characters), it leaned AI-written on 36% of Basque, 15% of
++Finnish, and 10% of Polish paragraphs, and human-written on most of the rest:
++either way a read with no basis.
++
++`languageCheck` now runs first, on the normalized text, and counts the
++commonest short words:
++
++* **Mostly another language:** at least 12 frequent function words of 13
++  widely used Latin-script languages (Spanish, French, German, Italian,
++  Portuguese, Dutch, Catalan, Polish, Czech, Swedish, Indonesian, Turkish,
++  Vietnamese), and more than twice as many as English ones.
++* **No English:** fewer than 3% English function words in 80 or more words.
++  This catches languages the list does not cover, and lists such as a
++  recipe's ingredients, which are not prose either. Text carrying disguise
++  tricks skips this test, so hidden letters cannot turn a check into a refusal.
++
++English function words that are also common words elsewhere (a, i, in, is,
++on, to, do, no, me, by, was, will, for, ...) do not count as English, and the
++other list leaves out one-letter words and words shared with English. The app
++answers "English prose required" and does not count the check. Measured with
++`eval/language_check.mjs` (`eval/results/language_check.json`):
++
++| Text | Not scored |
++| --- | ---: |
++| Human writing in the 13 listed languages (3,513 paragraphs) | **100%** (before: 0%) |
++| Human writing in 8 languages not on the list: Afrikaans, Basque, Croatian, Danish, Finnish, Hungarian, Latvian, Romanian (2,233 paragraphs) | **99.8%**, each language at least 99.0% (before: 0%) |
++| English prose: essays, news, papers, reviews, web text, and non-native English (9 sources, 4,936 texts) | **0%** |
++| RAID and DetectRL English sets, including attacked texts (7,970 texts) | 0.6% |
++
++The RAID and DetectRL cases are texts that are not English prose at all:
++posts, poems, and articles in Spanish, Portuguese, Turkish, French, and Welsh
++filed in the English sets, ingredient lists, and degenerate repetition.
++
 +## Bands (technical read)
 +
 +The older pattern-signal scale maps the logit piecewise-linearly so that
@@ -3624,7 +3676,7 @@ index 0000000..96b888d
 +* It is a **pattern signal**, not a probability, not proof of authorship, and
 +  not suitable as the sole basis for any academic, employment, legal, or
 +  moderation decision. The app copy says so on every result.
-+* It is English-only and tuned on research corpora from 2019–2024 models.
++* It is English-only (text mostly in another language is not scored) and tuned on research corpora from 2019–2024 models.
 +  Newer models, heavy human editing, deliberate style prompting, and
 +  paraphrasing reduce recall (see the RAID and OUTFOX rows).
 +* The top band is conservative by design: it misses much AI text in exchange
@@ -4821,10 +4873,10 @@ index 09d3fb2..380df0d 100644
      <h2>Do you store my uploads?</h2>
 diff --git b/text-detector.js b/text-detector.js
 new file mode 100644
-index 0000000..d777d02
+index 0000000..427c7b6
 --- /dev/null
 +++ b/text-detector.js
-@@ -0,0 +1,760 @@
+@@ -0,0 +1,826 @@
 +/* GAIC on-device text engine v2.
 +   A compact linear classifier over stylometric measurements and a pruned
 +   word/phrase lexicon, trained offline on permissively licensed public
@@ -5460,6 +5512,71 @@ index 0000000..d777d02
 +      : null;
 +  }
 +
++  // ---------- language check ----------
++  // The model was trained on English prose only, and text in another language
++  // gets a confident-looking but meaningless score. Two tests on the commonest
++  // short words, after normalize():
++  //   - mostly another language: at least 12 frequent function words of widely
++  //     used Latin-script languages, and more than twice as many as English
++  //     ones;
++  //   - no English: fewer than 3% English function words in 80 or more words,
++  //     which catches languages the list does not cover (and lists such as a
++  //     recipe's ingredients, which are not prose either). Text carrying
++  //     disguise tricks skips this test, so hiding letters cannot turn a check
++  //     into a refusal.
++  // English function words that are also common words elsewhere (a, i, in, is,
++  // on, to, do, no, me, by, was, will, for, ...) do not count as English, and
++  // the other list leaves out one-letter words and words shared with English.
++  // Measured on Universal Dependencies treebanks in 21 languages and on the
++  // English evaluation corpora; see models/GAIC-TEXT-MODEL.md.
++  const ENGLISH_WORDS = new Set((
++    "the of and that it with be you are this have from or not but they his her she we were which there " +
++    "been their one would can more if when what who about out up them into than then some its only other " +
++    "could these two may first any new our like just did how your very because most such where after " +
++    "those being should through even much many before between both each here own while same why does him " +
++    "us too few again against during without within upon don't it's i'm can't won't didn't doesn't isn't " +
++    "i've i'll i'd you're they're we're that's there's let's what's he's she's"
++  ).split(" "));
++  // Spanish, French, German, Italian, Portuguese, Dutch, Catalan, Polish,
++  // Czech, Swedish, Indonesian, Turkish, and Vietnamese.
++  const OTHER_LANGUAGE_WORDS = new Set((
++    "de la que el en los del se las por un para una su al lo como más pero sus le este sí porque esta " +
++    "entre cuando muy sobre también hasta donde quien desde todo nos durante todos uno les ni contra " +
++    "otros ese eso ellos esto mí antes algunos qué unos yo otro otras otra él tanto esa estos mucho " +
++    "quienes muchos cual poco ella estar estas algunas nosotros es fue ha está ser había fueron puede " +
++    "según tiene hace des et est du une qui dans pas au sur ne ce il sont avec ou mais comme sa ses aux " +
++    "elle nous vous ils été être cette ont fait leur très bien où peut aussi même deux der und von zu das " +
++    "sich auf für ist im nicht ein eine auch werden er dass sie nach wird bei einer um sind noch wie " +
++    "einem über einen zum haben nur oder aber vor zur mehr durch sein wurde sei wir ich ihr ihre di che " +
++    "della sono dei gli più anche nel alla ma delle questo si con da loro essere stato hanno degli nella " +
++    "sua suo em uma não na mas foi ao ele tem seu quando muito há já eu também só pelo pela até isso ela " +
++    "depois sem mesmo aos ter seus quem nas esse eles você essa nem suas meu minha dos een het niet zijn " +
++    "aan voor maar om zou wat mijn dit zo ze zich bij ook je uit daar haar naar heb heeft hebben deze nog " +
++    "zal zij nu geen omdat iets worden toch waren veel meer toen moet zonder kan hun dus werd wordt ik te " +
++    "dat van amb els va més dels però són seva się nie że jest jak po tak za od już jego jej przez dla " +
++    "czy być tylko oraz tym może był są które który jako jsem jsou jeho bylo byl jen už když ve mi ho " +
++    "jsme také nebo podle och att det som på är för har inte ett han var jag från vi så när år hon också " +
++    "efter eller där vid mot ska skulle kommer ut får finns vara hade andra mycket än här då sedan över " +
++    "bara blir upp yang dan ke dari ini itu dengan untuk pada adalah dalam tidak akan juga oleh ada atau " +
++    "sebagai karena telah saya kami mereka dia ia bisa sudah lebih tersebut hanya antara bahwa seperti " +
++    "harus masih sangat bir bu için ile çok gibi daha olarak kadar sonra şey ben ki olan değil của và là " +
++    "có được trong cho với các những một này không người đã để khi thì đến về từ ra cũng như sẽ tại nhiều " +
++    "hơn nhưng"
++  ).split(" "));
++  const LATIN_WORD_RE = /[a-z\u00c0-\u024f\u1e00-\u1eff']+/g;
++
++  function languageCheck(input) {
++    const words = normalize(input).toLowerCase().match(LATIN_WORD_RE) || [];
++    let english = 0, other = 0;
++    for (const word of words) {
++      if (ENGLISH_WORDS.has(word)) english += 1;
++      else if (OTHER_LANGUAGE_WORDS.has(word)) other += 1;
++    }
++    const reason = other >= 12 && other > 2 * english ? "other-language"
++      : words.length >= 80 && english < 0.03 * words.length && !disguiseCounts(input) ? "no-english" : "";
++    return Object.freeze({ english: !reason, reason, words: words.length, englishWords: english, otherLanguageWords: other });
++  }
++
 +  function scoreText(input) {
 +    if (!MODEL) return null;
 +    const text = normalize(input);
@@ -5574,6 +5691,7 @@ index 0000000..d777d02
 +    scoreText,
 +    machineLikeSection,
 +    disguiseCounts,
++    languageCheck,
 +    get model() { return MODEL; },
 +  });
 +})(typeof window !== "undefined" ? window : globalThis);

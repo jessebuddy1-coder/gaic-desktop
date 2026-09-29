@@ -624,6 +624,19 @@
         guidance: "Review the original source, drafts, citations, and document history instead.",
         countsTowardLimit: false };
     }
+    // Text in another Latin-script language (Spanish, French, German, ...) got
+    // past the letter check above and was scored by the English model.
+    const engine = global.AICheckTextEngine;
+    let language = null;
+    try { language = engine && typeof engine.languageCheck === "function" ? engine.languageCheck(t) : null; } catch (_) { language = null; }
+    if (language && language.english === false) {
+      return { kind: "error", score: null, verdict: "English prose required",
+        explain: language.reason === "other-language"
+          ? "This text reads as mostly another language. GAIC's text model was trained on English prose only, so this sample was not scored."
+          : "This sample has almost none of the common words of English prose. It may be in another language or be mostly a list, and GAIC's text model reads English prose only, so it was not scored.",
+        guidance: "Review the original source, drafts, citations, and document history instead.",
+        countsTowardLimit: false };
+    }
     const engineResult = analyzeTextWithEngine(t);
     if (engineResult) {
       return Object.assign(engineResult, {

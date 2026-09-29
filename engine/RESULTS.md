@@ -150,6 +150,19 @@ look-alike letters from other alphabets now get a notice. It fired on 100% of
 RAID's zero-width attacks and 99.8% of its homoglyph attacks, and on none of
 3,401 held-out human documents. The score already ignored these characters.
 
+**Text in other languages.** The model reads English only, but Spanish,
+German, or Polish text got past the old letter test and was scored anyway.
+On real human writing, the English model called 36% of Basque, 15% of
+Finnish, and 10% of Polish paragraphs AI-written. Such text now gets "English
+prose required" instead of a score. Measured on Universal Dependencies
+treebanks and the English evaluation corpora (`eval/language_check.mjs`):
+
+| Text | Not scored |
+| --- | ---: |
+| Human writing in 13 common Latin-script languages (3,513 paragraphs) | **100%** |
+| Human writing in 8 other languages the check has no word list for (2,233 paragraphs) | **99.8%** |
+| English prose from 9 sources, including non-native English (4,936 texts) | **0%** |
+
 Against 2.4.0's heuristic, on the held-out DetectRL corpus:
 
 | | 2.4.0 | Updated |

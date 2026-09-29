@@ -84,6 +84,26 @@ The scan-v6 results above used the unchanged v2 model file.
 | Reports | `image_report_v3.mjs`, `tradeoff.py`, `screens_report.py` | `image_report_v3.mjs` recomputes every published photo and screenshot figure with the app's own decision code (worker calibration and composite path, `decideImageLean`), from the per-image held-out frame and picture logits in `results/image_v3_held_out.jsonl` and `results/image_v3_screens_held_out.jsonl` (hashed ids), into `results/image_v3_report.json`; threshold trade-off; screenshot results |
 | Browser checks | `ui_check.mjs`, `e2e.mjs` | drives the real page in Chromium (ORT-Web WASM): result card text for photos, screenshots, large photos, text, video; `results/video_v3_e2e.jsonl` |
 
+## Text in other languages
+
+`language_check.mjs` runs the shipped `text-detector.js` `languageCheck` on
+human writing in 21 languages from Universal Dependencies treebanks
+(`GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1` of `UniversalDependencies/UD_<Language>-<Treebank>`
+into a folder; the `# text =` lines are the original sentences, joined into
+paragraphs of 1,200+ characters within a document) and on the English corpora
+from `build_corpus.py`, and records what the English model did with the same
+non-English paragraphs before the check existed. It writes
+`results/language_check.json`.
+
+    node language_check.mjs --ud data/ud data/ud-heldout --english data/text/corpus.jsonl
+
+Treebanks used: Spanish-AnCora, French-GSD, German-GSD, Italian-ISDT,
+Portuguese-Bosque, Dutch-Alpino, Catalan-AnCora, Polish-LFG, Czech-FicTree,
+Swedish-Talbanken, Indonesian-GSD, Turkish-BOUN, Vietnamese-VTB, and
+English-EWT; languages without a word list: Afrikaans-AfriBooms, Basque-BDT,
+Croatian-SET, Danish-DDT, Finnish-TDT, Hungarian-Szeged, Latvian-LVTB,
+Romanian-RRT.
+
 ## Photo metadata clues
 
 `metadata_clues.mjs` runs the app's own metadata parser and clue readers

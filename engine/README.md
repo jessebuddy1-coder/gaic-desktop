@@ -46,7 +46,7 @@ relative path. `runtime/FILES.txt` lists them.
 | `models/aicheck-ai-image-v3-fp16.onnx` | **new** (43 MB): the v2 network and weights, plus a `features` output for the decision head |
 | `image-head.js` | **new**: the image decision head and its calibration tables (28 KB) |
 | `model-config.js` | points at the v3 model file |
-| `text-detector.js` | **new**: text engine, weights, and the lean/confidence decision; machine-like section and disguise-trick checks |
+| `text-detector.js` | **new**: text engine, weights, and the lean/confidence decision; machine-like section and disguise-trick checks; a language check, so text in another language is not scored by the English model |
 | `app.js` | the decisive result layer (lean, confidence, AI likelihood) for text, photo, screenshot, video, and screen results; the text engine; the scanning viewfinder; blank-frame and screen-frame handling; the 50 MB / 120 MP photo limits; loading the photo model while a file is chosen; photo metadata clues (more tool names, never read from captions; generation settings in the EXIF comment or XMP; China's AI-content label) |
 | `provenance-verdict.mjs` | `decideImageLean`: combines the pixel reading with Content Credential and metadata clues; signed AI-origin and trusted capture credentials decide outright; undecided headlines renamed; China's AI-content label in the evidence read and the lean |
 | `detector-worker.js` | the decision head (per view, averaged, calibrated per scan kind); scan v6 picture reading; progress messages for the viewfinder; downscaled decoding above 24 MP; a `warm` message that loads the model without a reply. The 2.4.0 v5 functions are unchanged and pinned by tests |
