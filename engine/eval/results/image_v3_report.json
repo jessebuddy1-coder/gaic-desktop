@@ -1,0 +1,117 @@
+{
+ "photos": {
+  "n": 13926,
+  "ai_called_ai": 0.6708366563769189,
+  "real_called_ai": 0.037533031232041124,
+  "worst_real_source": 0.09956709956709957,
+  "auc": 0.9538939804904457,
+  "per_ai_family": {
+   "flux": 0.6956521739130435,
+   "google": 0.58298755186722,
+   "ideogram": 0.37037037037037035,
+   "microsoft": 0.7368421052631579,
+   "midjourney": 0.612094395280236,
+   "mixed": 0.6603351955307263,
+   "open-diffusion": 0.875,
+   "openai": 0.6932153392330384,
+   "photoreal-mixed": 0.8002773925104022,
+   "seedream": 0.681592039800995
+  },
+  "per_real_source": {
+   "art_pokemon_official": 0.015665796344647518,
+   "art_wesnoth": 0.027932960893854747,
+   "charts_chartqa": 0.0,
+   "docci": 0.09956709956709957,
+   "graphics-synth": 0.002857142857142857,
+   "memes_memegen": 0.06417112299465241,
+   "nonphoto_openimages": 0.095,
+   "openimages": 0.017218543046357615,
+   "ui_rico": 0.015384615384615385
+  }
+ },
+ "gaic_2_4_0": {
+  "warning_ai_called_ai": 0.20572609260469904,
+  "warning_real_called_ai": 0.015952937730363506,
+  "auc": 0.7194623224802067,
+  "same_rate_ai_called_ai": 0.2821219821616264,
+  "same_rate_real_called_ai": 0.037421677375566266,
+  "same_rate_per_ai_family": {
+   "flux": 0.5869565217391305,
+   "google": 0.17738589211618258,
+   "ideogram": 0.1111111111111111,
+   "microsoft": 0.10526315789473684,
+   "midjourney": 0.29646017699115046,
+   "mixed": 0.23128491620111732,
+   "open-diffusion": 0.842391304347826,
+   "openai": 0.13917940466613032,
+   "photoreal-mixed": 0.17198335644937587,
+   "seedream": 0.15920398009950248
+  }
+ },
+ "photo_confidence": {
+  "ai high": {
+   "share": 0.252875392723824,
+   "correct": 0.9804171248819052,
+   "ai": 3701,
+   "real": 64
+  },
+  "ai medium": {
+   "share": 0.10278087528275619,
+   "correct": 0.9013806729986595,
+   "ai": 1383,
+   "real": 131
+  },
+  "real high": {
+   "share": 0.3298569748845837,
+   "correct": 0.9713653542603315,
+   "ai": 141,
+   "real": 4141
+  },
+  "real low": {
+   "share": 0.23188538037361134,
+   "correct": 0.41443008781621443,
+   "ai": 2027,
+   "real": 1242
+  },
+  "real medium": {
+   "share": 0.08260137673522477,
+   "correct": 0.8280718663875545,
+   "ai": 212,
+   "real": 884
+  }
+ },
+ "screenshots": {
+  "n_ai": 520,
+  "n_real": 520,
+  "picture_located": 0.8663461538461539,
+  "ai_called_ai": 0.7134615384615385,
+  "real_called_ai": 0.04230769230769231,
+  "auc": 0.9289811390532544,
+  "per_layout": {
+   "article-desktop": {
+    "ai_called_ai": 0.6732673267326733,
+    "real_called_ai": 0.030303030303030304
+   },
+   "chat-dark": {
+    "ai_called_ai": 0.7101449275362319,
+    "real_called_ai": 0.024096385542168676
+   },
+   "letterbox": {
+    "ai_called_ai": 0.7721518987341772,
+    "real_called_ai": 0.041237113402061855
+   },
+   "portal-light": {
+    "ai_called_ai": 0.782051282051282,
+    "real_called_ai": 0.014084507042253521
+   },
+   "social-phone": {
+    "ai_called_ai": 0.6039603960396039,
+    "real_called_ai": 0.031914893617021274
+   },
+   "viewer-phone": {
+    "ai_called_ai": 0.7717391304347826,
+    "real_called_ai": 0.11842105263157894
+   }
+  }
+ }
+}

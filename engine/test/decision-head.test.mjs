@@ -138,6 +138,22 @@ test("the shipped decision head is complete and its calibration is monotone", ()
       assert.ok(knots[i][0] > knots[i - 1][0] && knots[i][1] >= knots[i - 1][1], kind + " knots monotone");
     }
     assert.ok(cuts.realHigh <= cuts.realMedium && cuts.realMedium < 0.5 && cuts.aiMedium >= 0.5 && cuts.aiMedium <= cuts.aiHigh);
+    // The lean threshold is a single knot at 50%: every head logit below it
+    // leans real and every one at or above it leans AI, even after the worker
+    // rounds the likelihood to 4 decimals (no flat band at exactly 50%).
+    const zero = knots.filter(([, v]) => v === 0);
+    assert.equal(zero.length, 1, kind + " has one threshold knot");
+    const at = knots.indexOf(zero[0]);
+    assert.ok(knots.slice(0, at).every(([, v]) => v <= -0.05), kind + " knots below the threshold lean real");
+    assert.ok(knots.slice(at + 1).every(([, v]) => v >= 0.05), kind + " knots above the threshold lean AI");
+    const shown = (x) => {
+      const i = knots.findIndex(([kx]) => x <= kx);
+      const [x0, y0] = knots[i - 1], [x1, y1] = knots[i];
+      const logOdds = y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+      return Math.round(1e4 / (1 + Math.exp(-logOdds))) / 1e4;
+    };
+    const t = zero[0][0];
+    assert.ok(shown(t - 0.01) < 0.5 && shown(t) >= 0.5 && shown(t + 0.01) > 0.5, kind + " rounding keeps the threshold");
   }
   const worker = read("detector-worker.js");
   assert.match(worker, /try \{ importScripts\("image-head\.js"\); \} catch \(_\) \{\}/);

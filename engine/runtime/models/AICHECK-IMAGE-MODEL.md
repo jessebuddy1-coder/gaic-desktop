@@ -8,7 +8,7 @@ sent to a server for this result.
 | --- | --- |
 | File | `models/aicheck-ai-image-v3-fp16.onnx` (engine v3; same network and weights as v2, plus a `features` output) |
 | SHA-256 | `bc7f12a0ca9750791607bbcf32159749e06079e4145a3e62c602e40f015f4fab` (v3); v2 was `bb98ce3021b2717595b3fe625871e247a7ac15623296e4ad1e2207453d529b57` |
-| Decision head | `image-head.js`, SHA-256 `9b59e2b14860b228e56b627378728af2b5e310adec0dc3cb26f173d641017707` (see "Engine v3" below) |
+| Decision head | `image-head.js`, SHA-256 `714bc3dc260171f09023d33f3dbba527cda452c8d30523e376edf4272b08c871` (see "Engine v3" below) |
 | Source | [OwensLab/commfor-model-224](https://huggingface.co/OwensLab/commfor-model-224) at revision `26afc31e6b40c312c3fd42c05a758be62446215b` |
 | Paper | Community Forensics: Using Thousands of Generators to Train Fake Image Detectors ([arXiv:2411.04125](https://arxiv.org/abs/2411.04125), CVPR 2025) |
 | License | MIT (model weights and reference code) |
@@ -248,7 +248,11 @@ v2 file keeps working; the head then stays off.
 averages in logit space. For a located picture (scan v6), the headline uses
 the higher of the picture average and the frame average. A monotone knot table
 maps that average to the displayed AI likelihood, with separate tables for
-direct images, composite frames, and video frames. The worker computes the
+direct images, composite frames, and video frames. Each table has one knot at
+exactly 50%, at its lean threshold, and every other knot at least 0.05 log-odds
+away from it, so the lean switches exactly at the threshold even after the
+worker rounds the likelihood to 4 decimals (`eval/calib_image.py`
+`pin_knots`). The worker computes the
 head only when both `image-head.js` and the feature output are present, and
 otherwise returns the engine v2 reading unchanged.
 
@@ -303,35 +307,39 @@ never saw its group):
 
 | | GAIC 2.4.0 warning (≥95) | v2 model at the same real false-lean rate | **engine v3** |
 | --- | ---: | ---: | ---: |
-| AI images called AI (family-balanced) | 20.6% | 28.3% | **67.7%** |
-| Real images called AI (source-balanced) | 1.6% | 3.8% | **4.0%** |
+| AI images called AI (family-balanced) | 20.6% | 28.2% | **67.1%** |
+| Real images called AI (source-balanced) | 1.6% | 3.7% | **3.8%** |
 | AUC (pooled) | 0.719 | 0.719 | **0.954** |
 
 | AI family (held out) | v2 at same rate | **v3** |
 | --- | ---: | ---: |
-| Photorealistic social / avatar / product | 17% | **81%** |
-| OpenAI GPT-4o / gpt-image | 14% | **70%** |
-| Seedream | 16% | **69%** |
-| mixed galleries | 23% | **67%** |
-| Midjourney | 30% | **62%** |
-| Google Nano Banana | 18% | **60%** |
+| Photorealistic social / avatar / product | 17% | **80%** |
+| OpenAI GPT-4o / gpt-image | 14% | **69%** |
+| Seedream | 16% | **68%** |
+| mixed galleries | 23% | **66%** |
+| Midjourney | 30% | **61%** |
+| Google Nano Banana | 18% | **58%** |
 | Ideogram (27 images) | 11% | **37%** |
 
 Real images leaning AI, per held-out source: charts 0.0%, rendered graphics
-0.3%, Open Images photos 1.8%, Pokémon art 1.8%, Rico app screens 2.1%,
-Wesnoth paintings 2.8%, memes 6.4%, Open Images non-photo 9.8%, DOCCI camera
-photos 10.7%. In a 5-fold split where every source is represented in training
+0.3%, Rico app screens 1.5%, Pokémon art 1.6%, Open Images photos 1.7%,
+Wesnoth paintings 2.8%, memes 6.4%, Open Images non-photo 9.5%, DOCCI camera
+photos 10.0%. In a 5-fold split where every source is represented in training
 (closer to the shipped head), DOCCI photos leaned AI 0.1% of the time.
+
+Every figure here is computed the way the app decides: the calibration table,
+the worker's rounding, the 50% lean, and the confidence cuts, applied to the
+committed per-image held-out scores (`eval/image_report_v3.py`).
 
 Share of correct leans per confidence level (held out, balanced classes):
 
 | Lean / confidence | Share of images | Correct |
 | --- | ---: | ---: |
 | AI, high | 25% | **98.0%** |
-| AI, medium | 11% | 89.8% |
+| AI, medium | 10% | 90.1% |
 | Real, high | 33% | **97.1%** |
 | Real, medium | 8% | 82.8% |
-| Real, low | 23% | 42.2% (a close call, labelled as one) |
+| Real, low | 23% | 41.4% (a close call, labelled as one) |
 
 **Screenshots** (1,040 screenshots of the same images in six app and web
 layouts). v3 calibrates composite frames on their own. See `RESULTS.md` for the

@@ -36,7 +36,19 @@ def knots(y, s, t, lo=None, hi=None, step=0.25, temperature=1.0):
     p = np.maximum.accumulate(p + np.arange(len(p)) * 1e-6)
     shift = np.log(np.interp(t, grid, p) / (1 - np.interp(t, grid, p)))
     lo_ = (np.log(p / (1 - p)) - shift) * temperature
-    return [[round(float(g), 3), round(float(v), 4)] for g, v in zip(grid, lo_)]
+    return pin_knots([[round(float(g), 3), round(float(v), 4)] for g, v in zip(grid, lo_)], t)
+
+def pin_knots(k, t, margin=0.05):
+    """Make the lean follow the threshold exactly: a knot at t (floored to 5
+    decimals) with log-odds 0, every knot below t at most -margin and every knot
+    above it at least +margin. The isotonic fit is flat around t, so without
+    this a band just under t sits at exactly 50% and leans AI (p >= 0.5), and
+    the app rounds the likelihood to 4 decimals, so the margin must be large
+    enough to survive that. Knots already further from 0 are unchanged."""
+    tt = float(np.floor(t * 1e5) / 1e5)
+    out = [[x, min(v, -margin) if x < tt else max(v, margin)] for x, v in k if abs(x - tt) > 1e-9]
+    out.append([tt, 0.0])
+    return sorted(out, key=lambda a: a[0])
 
 def apply_knots(k, s):
     g = np.array([a for a, _ in k]); v = np.array([b for _, b in k])

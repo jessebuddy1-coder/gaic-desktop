@@ -80,8 +80,8 @@ The scan-v6 results above used the unchanged v2 model file.
 | Human-made graphics | `make_nonphoto.mjs` | dashboards, documents, code, spreadsheets, slides, forms, vector art, and photo memes rendered by headless Chromium |
 | Extraction | `feat_harness.mjs`, `featqueue2.sh` | runs the **real** `detector-worker.js` in Node and records every view's features, so training sees exactly the views the app reads |
 | Head search | `train_rich.py`, `fasthead.py` | leave-one-group-out (10 AI families, 9 real sources); linear vs. MLP heads, feature subsets, C sweep |
-| Calibration and export | `train_final_head.py`, `calib_image.py`, `build_image_head.py` | lean threshold, knot tables, confidence cuts per scan kind; writes `image-head.js` |
-| Reports | `tradeoff.py`, `screens_report.py` | threshold trade-off, screenshot results; per-image held-out scores in `results/image_v3_held_out.jsonl` (hashed ids) |
+| Calibration and export | `train_final_head.py`, `calib_image.py`, `build_image_head.py`, `pin_head.py` | lean threshold, knot tables, confidence cuts per scan kind; writes `image-head.js`; `pin_head.py` puts each table's 50% knot exactly at its threshold (`calib_image.pin_knots`, which `knots()` now applies itself) |
+| Reports | `image_report_v3.py`, `tradeoff.py`, `screens_report.py` | `image_report_v3.py` recomputes every published photo and screenshot figure the way the app decides, from the per-image held-out scores in `results/image_v3_held_out.jsonl` and `results/image_v3_screens_held_out.jsonl` (hashed ids), into `results/image_v3_report.json`; threshold trade-off; screenshot results |
 | Browser checks | `ui_check.mjs`, `e2e.mjs` | drives the real page in Chromium (ORT-Web WASM): result card text for photos, screenshots, large photos, text, video; `results/video_v3_e2e.jsonl` |
 
 ## Text decision (lean, confidence, AI likelihood)

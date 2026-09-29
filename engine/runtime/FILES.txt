@@ -7,6 +7,7 @@ onnx-detector.js
 support.html
 models/GAIC-TEXT-MODEL.md
 models/AICHECK-IMAGE-MODEL.md
+models/README.md
 styles.css
 provenance-verdict.mjs
 is-this-ai.js
