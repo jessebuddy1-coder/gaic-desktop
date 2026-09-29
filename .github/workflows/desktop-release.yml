@@ -59,7 +59,7 @@ jobs:
       - name: Build the installer
         working-directory: engine/desktop
         run: |
-          npm install --no-save --no-audit --no-fund electron-builder@26.0.12 playwright-core@1.56.1
+          npm install --no-save --no-audit --no-fund electron-builder@26.0.12
           npx electron-builder --win nsis --x64 --prepackaged ../../app --publish never
           ls -la dist
       - name: Check the installer carries exactly the prepared app
@@ -78,16 +78,25 @@ jobs:
           $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\b91ab059-8101-5c06-8516-938b5b57c439'
           Start-Process -Wait -FilePath 'base\GAIC-Setup-2.4.0-x64.exe' -ArgumentList '/S'
           $old = Get-ItemProperty $key
-          "installed: $($old.DisplayName) $($old.DisplayVersion) at $($old.InstallLocation)"
+          "installed: $($old.DisplayName) ($($old.DisplayVersion))"
           if ($old.DisplayVersion -ne '2.4.0') { throw '2.4.0 did not install' }
+          # Stand-in for a person's settings: the app data folder must survive the upgrade.
+          New-Item -ItemType Directory -Force "$env:APPDATA\GAIC" | Out-Null
+          Set-Content "$env:APPDATA\GAIC\upgrade-marker.txt" 'kept'
           Get-Process GAIC -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Process -Wait -FilePath 'engine\desktop\dist\GAIC-Setup-${{ steps.rel.outputs.version }}-x64.exe' -ArgumentList '/S'
           $new = Get-ItemProperty $key
-          "installed: $($new.DisplayName) $($new.DisplayVersion) at $($new.InstallLocation)"
+          "installed: $($new.DisplayName) ($($new.DisplayVersion))"
           if ($new.DisplayVersion -ne '${{ steps.rel.outputs.version }}') { throw 'the upgrade did not register the new version' }
           $entries = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object { $_.DisplayName -like 'GAIC*' })
           if ($entries.Count -ne 1) { throw "expected one GAIC entry in Installed apps, found $($entries.Count)" }
-          "INSTALL_DIR=$($new.InstallLocation)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          if (-not (Test-Path "$env:APPDATA\GAIC\upgrade-marker.txt")) { throw 'the upgrade removed the app data folder' }
+          # electron-builder records the folder under Software\<GUID>, not the uninstall key.
+          $loc = (Get-ItemProperty 'HKCU:\Software\b91ab059-8101-5c06-8516-938b5b57c439' -ErrorAction SilentlyContinue).InstallLocation
+          if (-not $loc) { $loc = Join-Path $env:LOCALAPPDATA 'Programs\GAIC' }
+          if (-not (Test-Path (Join-Path $loc 'GAIC.exe'))) { throw "GAIC.exe not found in $loc" }
+          "install location: $loc"
+          "INSTALL_DIR=$loc" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: Check the installed files
         run: |
           dir="$(cygpath -u "$INSTALL_DIR")"
@@ -201,9 +210,7 @@ jobs:
           lipo -archs "$app/Contents/MacOS/GAIC"
       - name: Run checks in the app
         working-directory: engine/desktop
-        run: |
-          npm install --no-save --no-audit --no-fund playwright-core@1.56.1
-          node smoke.mjs "$RUNNER_TEMP/installed/GAIC.app/Contents/MacOS/GAIC" ../../out/macos --use-mock-keychain
+        run: node smoke.mjs "$RUNNER_TEMP/installed/GAIC.app/Contents/MacOS/GAIC" ../../out/macos --use-mock-keychain
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg

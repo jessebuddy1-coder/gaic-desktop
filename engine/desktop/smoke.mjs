@@ -1,22 +1,18 @@
 // Smoke test for a built GAIC desktop app: launch it with a DevTools port,
-// attach over the Chrome DevTools Protocol, and run three checks through the
-// real UI (the free allowance is 3 a week): a text check, a photo check, and a
-// 48 MP photo check (above the old 8 MB / 24 MP limits). Fails unless every
-// check ends with a lean, a confidence level, and an AI likelihood, the
-// updated engine files are the ones loaded, and the page logs no errors.
+// attach to its page over the Chrome DevTools Protocol, and run three checks
+// through the real UI (the free allowance is 3 a week): a text check, a photo
+// check, and a 48 MP photo check (above the old 8 MB / 24 MP limits). Fails
+// unless every check ends with a lean, a confidence level, and an AI
+// likelihood, the updated engine files are the ones loaded, and the page logs
+// no errors. Needs Node 22+ (built-in WebSocket); no other dependencies.
 //
 //   node smoke.mjs <app-executable> <out-dir> [extra app args...]
-//
-// Needs playwright-core (only its CDP client is used; no browser download).
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
-const require = createRequire(import.meta.url);
-const { chromium } = require(process.env.PLAYWRIGHT_CORE || "playwright-core");
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runtimeDir = path.join(here, "..", "runtime");
 const [, , exe, outDir, ...extraArgs] = process.argv;
@@ -30,6 +26,7 @@ const failures = [];
 const report = { exe, checks: [], errors: [] };
 const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
 const log = (...args) => console.log("[smoke]", ...args);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Public-domain passage (Jane Austen, Pride and Prejudice, 1813), long enough
 // for the text check's 1,000-character minimum.
@@ -57,29 +54,113 @@ function expectedTextDecision() {
   return ctx.AICheckTextEngine.analyze(TEXT).decision;
 }
 
-async function waitForDevTools(child) {
-  const deadline = Date.now() + 90_000;
+// A minimal DevTools-protocol client for one page target.
+class Page {
+  constructor(url) {
+    this.ws = new WebSocket(url);
+    this.nextId = 1;
+    this.pending = new Map();
+    this.ws.addEventListener("message", (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.id && this.pending.has(msg.id)) {
+        const { resolve, reject, timer, method } = this.pending.get(msg.id);
+        this.pending.delete(msg.id);
+        clearTimeout(timer);
+        if (msg.error) reject(new Error(`${method}: ${msg.error.message}`));
+        else resolve(msg.result);
+      } else if (msg.method === "Runtime.exceptionThrown") {
+        const d = msg.params.exceptionDetails;
+        report.errors.push(`pageerror: ${((d.exception && d.exception.description) || d.text || "").slice(0, 300)}`);
+      } else if (msg.method === "Runtime.consoleAPICalled" && msg.params.type === "error") {
+        report.errors.push(`console: ${msg.params.args.map((a) => a.value ?? a.description ?? "").join(" ").slice(0, 300)}`);
+      }
+    });
+  }
+  open() {
+    return new Promise((resolve, reject) => {
+      this.ws.addEventListener("open", resolve, { once: true });
+      this.ws.addEventListener("error", () => reject(new Error("page websocket failed")), { once: true });
+    });
+  }
+  send(method, params = {}, timeoutMs = 60_000) {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`${method} got no answer in ${timeoutMs / 1000} s`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer, method });
+      this.ws.send(JSON.stringify({ id, method, params }));
+    });
+  }
+  async evaluate(fn, arg, timeoutMs) {
+    const expression = `(${fn})(${JSON.stringify(arg === undefined ? null : arg)})`;
+    const res = await this.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, timeoutMs);
+    if (res.exceptionDetails) {
+      const d = res.exceptionDetails;
+      throw new Error(`page threw: ${(d.exception && d.exception.description) || d.text}`);
+    }
+    return res.result.value;
+  }
+  async waitFor(fn, timeoutMs, what) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await this.evaluate(fn)) return;
+      await sleep(250);
+    }
+    throw new Error(`timed out after ${timeoutMs / 1000} s waiting for ${what}`);
+  }
+  async click(selector) {
+    // "instant" overrides the page's smooth scrolling, so the box is final.
+    const box = await this.evaluate(async (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+      await new Promise((r) => setTimeout(r, 50));
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      return { x, y, hits: !!hit && (hit === el || el.contains(hit)) };
+    }, selector);
+    if (!box) throw new Error(`no element ${selector}`);
+    if (!box.hits) throw new Error(`${selector} is covered or off screen at (${box.x}, ${box.y})`);
+    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x, y: box.y, button: "none", buttons: 0 });
+    await this.send("Input.dispatchMouseEvent", { type: "mousePressed", x: box.x, y: box.y, button: "left", buttons: 1, clickCount: 1 });
+    await this.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: box.x, y: box.y, button: "left", buttons: 0, clickCount: 1 });
+  }
+  async screenshot(selector, file) {
+    const clip = await this.evaluate((sel) => {
+      // At the top of the page the sticky header cannot overlap the card.
+      window.scrollTo({ top: 0, behavior: "instant" });
+      const el = document.querySelector(sel);
+      const r = el.getBoundingClientRect();
+      return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height, scale: 1 };
+    }, selector);
+    const { data } = await this.send("Page.captureScreenshot", { format: "png", clip, captureBeyondViewport: true });
+    fs.writeFileSync(file, Buffer.from(data, "base64"));
+  }
+  close() { try { this.ws.close(); } catch (_) {} }
+}
+
+async function devToolsJson(route) {
+  const res = await fetch(`http://127.0.0.1:${PORT}${route}`);
+  if (!res.ok) throw new Error(`${route}: HTTP ${res.status}`);
+  return res.json();
+}
+
+async function waitForAppPage(child) {
+  const deadline = Date.now() + 120_000;
+  let targets = [];
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`app exited early with code ${child.exitCode}`);
     try {
-      const res = await fetch(`http://127.0.0.1:${PORT}/json/version`);
-      if (res.ok) return res.json();
+      targets = await devToolsJson("/json/list");
+      const page = targets.find((t) => t.type === "page" && t.url.startsWith("aicheck-app:"));
+      if (page) return { page, targets };
     } catch (_) { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 500));
+    await sleep(500);
   }
-  throw new Error("DevTools endpoint did not come up within 90 s");
-}
-
-async function appPage(browser) {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    for (const context of browser.contexts()) {
-      const page = context.pages().find((p) => p.url().startsWith("aicheck-app:"));
-      if (page) return page;
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error("no aicheck-app: page appeared");
+  throw new Error(`no aicheck-app: page within 120 s; targets: ${JSON.stringify(targets)}`);
 }
 
 async function readResult(page) {
@@ -96,11 +177,11 @@ async function runCheck(page, name, prepare) {
   const t0 = Date.now();
   await prepare();
   await page.click("#check-btn");
-  await page.waitForFunction(() => document.getElementById("result").classList.contains("show") &&
-    !document.getElementById("check-btn").disabled, null, { timeout: 300_000 });
+  await page.waitFor(() => document.getElementById("result").classList.contains("show") &&
+    !document.getElementById("check-btn").disabled, 300_000, `the ${name} result`);
   const seen = await readResult(page);
   const ms = Date.now() - t0;
-  await page.locator("#result").screenshot({ path: path.join(outDir, `${name}.png`) });
+  await page.screenshot("#result", path.join(outDir, `${name}.png`));
   const row = { name, ms, ...seen };
   report.checks.push(row);
   log(name, JSON.stringify(row));
@@ -113,8 +194,7 @@ async function runCheck(page, name, prepare) {
 }
 
 // A deterministic synthetic photo made in the page: gradients, shapes, and
-// grain, encoded as JPEG. Returned as a File so it goes through the app's
-// normal file picker path.
+// grain, encoded as JPEG and handed to the app's file picker input.
 async function pickSyntheticPhoto(page, width, height, name) {
   const info = await page.evaluate(async ({ width, height, name }) => {
     let seed = 1234567;
@@ -149,7 +229,7 @@ async function pickSyntheticPhoto(page, width, height, name) {
     input.files = transfer.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
     return { bytes: blob.size, width, height };
-  }, { width, height, name });
+  }, { width, height, name }, 120_000);
   log(`picked ${name}: ${info.width}x${info.height}, ${(info.bytes / 1048576).toFixed(1)} MB`);
   return info;
 }
@@ -157,22 +237,23 @@ async function pickSyntheticPhoto(page, width, height, name) {
 // A fresh profile, so the weekly allowance and any saved state start empty.
 const profile = path.resolve(outDir, "profile");
 fs.rmSync(profile, { recursive: true, force: true });
+const appLogPath = path.join(outDir, "app.log");
+const appLog = fs.createWriteStream(appLogPath);
 const child = spawn(exe, [`--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, ...extraArgs],
   { stdio: ["ignore", "pipe", "pipe"] });
-const appLog = fs.createWriteStream(path.join(outDir, "app.log"));
 child.stdout.pipe(appLog); child.stderr.pipe(appLog);
-let browser;
+let page;
 try {
-  const version = await waitForDevTools(child);
-  report.browser = version.Browser;
-  log("DevTools up:", version.Browser);
-  browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`);
-  const page = await appPage(browser);
-  page.on("pageerror", (e) => report.errors.push(`pageerror: ${String(e).slice(0, 300)}`));
-  page.on("console", (m) => { if (m.type() === "error") report.errors.push(`console: ${m.text().slice(0, 300)}`); });
-  await page.waitForFunction(() => window.AICheck && window.OnnxDetector && document.readyState === "complete", null, { timeout: 60_000 });
-  await page.setViewportSize({ width: 1280, height: 900 }).catch(() => {});
-  log("page:", page.url());
+  const { page: target, targets } = await waitForAppPage(child);
+  report.targets = targets.map((t) => ({ type: t.type, url: t.url }));
+  report.browser = (await devToolsJson("/json/version")).Browser;
+  log("DevTools up:", report.browser, "targets:", JSON.stringify(report.targets));
+  page = new Page(target.webSocketDebuggerUrl);
+  await page.open();
+  await page.send("Runtime.enable");
+  await page.send("Page.enable");
+  await page.waitFor(() => document.readyState === "complete" && !!(window.AICheck && window.OnnxDetector), 120_000, "the app to load");
+  log("page:", target.url);
 
   const loaded = await page.evaluate(() => ({
     model: window.AICHECK_ONNX && window.AICHECK_ONNX.model,
@@ -196,7 +277,12 @@ try {
   const expected = expectedTextDecision();
   const textRow = await runCheck(page, "text", async () => {
     await page.click("#tab-text");
-    await page.fill("#text-input", TEXT);
+    await page.evaluate((text) => {
+      const el = document.getElementById("text-input");
+      el.focus();
+      el.value = text;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }, TEXT);
   });
   const leanWord = expected.lean === "ai" ? "AI-written" : "human-written";
   check(textRow.verdict.includes(leanWord) && textRow.verdict.includes(`${expected.confidence} confidence`),
@@ -212,8 +298,7 @@ try {
 
   // 3. A 48 MP photo, above the old 8 MB / 24 MP limits.
   const bigRow = await runCheck(page, "photo-48mp", async () => {
-    const info = await pickSyntheticPhoto(page, 8000, 6000, "smoke-48mp.jpg");
-    report.bigPhoto = info;
+    report.bigPhoto = await pickSyntheticPhoto(page, 8000, 6000, "smoke-48mp.jpg");
   });
   check(bigRow.kind === "Photo scan", `photo-48mp: result kind "${bigRow.kind}"`);
   check(report.bigPhoto && report.bigPhoto.bytes > 8 * 1048576, "photo-48mp: test file was not above 8 MB");
@@ -222,13 +307,16 @@ try {
 } catch (error) {
   failures.push(`smoke test aborted: ${error && error.stack ? error.stack : error}`);
 } finally {
-  if (browser) await browser.close().catch(() => {});
+  if (page) page.close();
   child.kill();
+  await sleep(500);
   report.failures = failures;
   fs.writeFileSync(path.join(outDir, "smoke.json"), JSON.stringify(report, null, 2));
 }
 if (failures.length) {
   console.error("[smoke] FAILED\n" + failures.map((f) => "  - " + f).join("\n"));
+  const tail = fs.existsSync(appLogPath) ? fs.readFileSync(appLogPath, "utf8").split("\n").slice(-60).join("\n") : "";
+  console.error("[smoke] last lines of the app's own log:\n" + tail);
   process.exit(1);
 }
 log("all checks passed");
