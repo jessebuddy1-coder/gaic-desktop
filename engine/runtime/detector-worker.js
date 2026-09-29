@@ -988,25 +988,25 @@ self.addEventListener("message", async (event) => {
           self.postMessage({ id, ...boundedError("worker_unsupported") });
           return;
         }
-        const view = await inferView(activeSession, input);
-        const score = view.score;
+        const reading = await inferView(activeSession, input);
+        const score = reading.score;
         if (!Number.isFinite(score)) {
           self.postMessage({ id, ...boundedError("invalid_output") });
           return;
         }
         regionScores.push({ id: region.id, aiLikelihood: score });
-        frameHeadLogits.push(view.head);
+        frameHeadLogits.push(reading.head);
       }
       for (const pixels of split.picture) {
         reportProgress(id, "picture-view", split.picture.indexOf(pixels), split.picture.length, null);
-        const view = await inferView(activeSession, tensorFromPixels(pixels));
-        const score = view.score;
+        const reading = await inferView(activeSession, tensorFromPixels(pixels));
+        const score = reading.score;
         if (!Number.isFinite(score)) {
           self.postMessage({ id, ...boundedError("invalid_output") });
           return;
         }
         pictureLogits.push(scoreLogit(score));
-        pictureHeadLogits.push(view.head);
+        pictureHeadLogits.push(reading.head);
       }
       pictureArea = Number(request.pictureArea) || 0;
       sourceWidth = Number(request.sourceWidth) || 0;
@@ -1031,28 +1031,28 @@ self.addEventListener("message", async (event) => {
             self.postMessage({ id, ...boundedError("worker_unsupported") });
             return;
           }
-          const view = await inferView(activeSession, input);
-          const score = view.score;
+          const reading = await inferView(activeSession, input);
+          const score = reading.score;
           if (!Number.isFinite(score)) {
             self.postMessage({ id, ...boundedError("invalid_output") });
             return;
           }
           regionScores.push({ id: region.id, aiLikelihood: score });
-          frameHeadLogits.push(view.head);
+          frameHeadLogits.push(reading.head);
         }
         if (decoded.picture) {
           for (const view of PICTURE_SCAN.views) {
             reportProgress(id, "picture-view", PICTURE_SCAN.views.indexOf(view), PICTURE_SCAN.views.length, viewProgressRect(decoded.picture.rect, view, sourceWidth, sourceHeight));
             const input = tensorForView(decoded.bitmap, decoded.picture.rect, view);
             if (!input) continue;
-            const view = await inferView(activeSession, input);
-            const score = view.score;
+            const reading = await inferView(activeSession, input);
+            const score = reading.score;
             if (!Number.isFinite(score)) {
               self.postMessage({ id, ...boundedError("invalid_output") });
               return;
             }
             pictureLogits.push(scoreLogit(score));
-            pictureHeadLogits.push(view.head);
+            pictureHeadLogits.push(reading.head);
           }
           pictureArea = decoded.picture.areaFrac;
         }
