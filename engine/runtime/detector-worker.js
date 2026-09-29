@@ -973,6 +973,12 @@ function reportProgress(id, phase, index, total, rect) {
 
 self.addEventListener("message", async (event) => {
   const request = event.data && typeof event.data === "object" ? event.data : {};
+  if (request.kind === "warm") {
+    // Load the model ahead of the first check. No reply: the check that
+    // follows waits on the same load, or retries it if it failed.
+    session().catch(() => {});
+    return;
+  }
   const id = Number(request.id);
   if (!Number.isSafeInteger(id) || id < 1) return;
   if (request.kind !== "detect" && request.kind !== "detect-rgba") {

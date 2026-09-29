@@ -8,7 +8,7 @@ sent to a server for this result.
 | --- | --- |
 | File | `models/aicheck-ai-image-v3-fp16.onnx` (engine v3; same network and weights as v2, plus a `features` output) |
 | SHA-256 | `bc7f12a0ca9750791607bbcf32159749e06079e4145a3e62c602e40f015f4fab` (v3); v2 was `bb98ce3021b2717595b3fe625871e247a7ac15623296e4ad1e2207453d529b57` |
-| Decision head | `image-head.js`, SHA-256 `714bc3dc260171f09023d33f3dbba527cda452c8d30523e376edf4272b08c871` (see "Engine v3" below) |
+| Decision head | `image-head.js`, SHA-256 `dbf6037db474cbfd6d078fe33bbd48cb31511541b54ec1504f59aedec128cb00` (see "Engine v3" below) |
 | Source | [OwensLab/commfor-model-224](https://huggingface.co/OwensLab/commfor-model-224) at revision `26afc31e6b40c312c3fd42c05a758be62446215b` |
 | Paper | Community Forensics: Using Thousands of Generators to Train Fake Image Detectors ([arXiv:2411.04125](https://arxiv.org/abs/2411.04125), CVPR 2025) |
 | License | MIT (model weights and reference code) |

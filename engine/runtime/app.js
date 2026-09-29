@@ -452,6 +452,14 @@
   // Accepts a candidate file from any path (picker, drop, paste, share, camera).
   // Returns true and stores it if valid; otherwise shows an inline message
   // (never a blocking alert) and returns false.
+  // Start loading the image model while a file is being chosen or reviewed,
+  // so pressing Check does not wait for it. Nothing is read or scored here.
+  function warmImageModel() {
+    try {
+      if (window.OnnxDetector && typeof window.OnnxDetector.warm === "function") window.OnnxDetector.warm();
+    } catch (_) {}
+  }
+
   function acceptImage(file, label, sourceKind) {
     if (!file) return false;
     const video = isVideoFile(file);
@@ -488,6 +496,7 @@
     if (drop) drop.classList.add("has-file");
     announce((video ? "Video" : "Photo") + " selected. Choose Check selected file when you're ready.", false);
     setCheckButtonLabel();
+    warmImageModel();
     return true;
   }
 
@@ -4097,6 +4106,8 @@
       });
       // A normal file choice pauses for review before consuming a free check.
       // The explicit Quick Scan shortcut may opt into immediate analysis.
+      // Every way of opening the file picker clicks this input.
+      input.addEventListener("click", warmImageModel);
       input.addEventListener("change", e => {
         const f = e.target.files && e.target.files[0];
         const shouldRun = autoRunAfterPick;
@@ -4110,6 +4121,7 @@
       ["dragover","dragenter"].forEach(ev => drop.addEventListener(ev, e => {
         e.preventDefault(); drop.classList.add("is-dragging");
       }));
+      drop.addEventListener("dragenter", warmImageModel);
       ["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {
         e.preventDefault(); drop.classList.remove("is-dragging");
       }));

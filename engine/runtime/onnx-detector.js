@@ -909,6 +909,20 @@
     return worker;
   }
 
+  // Load the model in the background worker before the first check, while the
+  // person is still choosing or reviewing a file, so the check does not wait
+  // for it. Nothing is read or scored here; a load that fails is simply
+  // retried by the check itself.
+  let warmedWorker = null;
+  function warm() {
+    const activeWorker = ensureWorker();
+    if (!activeWorker || warmedWorker === activeWorker) return;
+    try {
+      activeWorker.postMessage({ kind: "warm" });
+      warmedWorker = activeWorker;
+    } catch (_) {}
+  }
+
   async function detectInWorker(file, report) {
     const activeWorker = ensureWorker();
     if (
@@ -1030,6 +1044,7 @@
 
   window.OnnxDetector = {
     detect,
+    warm,
     get available() {
       return !workerUnavailable && typeof Worker === "function";
     },

@@ -187,6 +187,46 @@ test("a failing progress callback cannot fail a check", async () => {
   assert.equal((await pending).aiLikelihood, 0.5);
 });
 
+// ---------- loading the model before the first check ----------
+
+test("a warm message loads the model once and posts nothing", async () => {
+  const worker = fakeWorkerRealm();
+  const create = worker.ctx.ort.InferenceSession.create;
+  let loads = 0;
+  worker.ctx.ort.InferenceSession.create = (...args) => { loads += 1; return create(...args); };
+  await worker.send({ kind: "warm" });
+  await worker.send({ kind: "warm" });
+  await tick();
+  assert.equal(worker.posted.length, 0, "no reply to a warm message");
+  assert.equal(loads, 1, "the model loads once");
+  await worker.send({ id: 5, kind: "detect", composite: true, bytes: worker.buffer(64), type: "image/png" });
+  const answer = worker.posted.find((m) => !m.progress);
+  assert.ok(answer && answer.ok, "the check answers");
+  assert.equal(loads, 1, "the check reuses the loaded model");
+});
+
+test("warm() starts the worker's model load once; the check uses the same worker", async () => {
+  const { detector, workers, file } = detectorRealm();
+  detector.warm();
+  detector.warm();
+  assert.equal(workers.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(workers[0].posted)), [{ kind: "warm" }]);
+  const pending = detector.detect(file);
+  await tick();
+  assert.equal(workers.length, 1, "no second worker");
+  const request = workers[0].posted[1];
+  assert.equal(request.kind, "detect");
+  workers[0].emit({ id: request.id, ok: true, result: { aiLikelihood: 0.5 } });
+  assert.equal((await pending).aiLikelihood, 0.5);
+});
+
+test("choosing, dropping, or pasting a file starts the model load", () => {
+  assert.match(functionSource(app, "acceptImage"), /setCheckButtonLabel\(\); warmImageModel\(\); return true; \}$/);
+  assert.match(app, /input\.addEventListener\("click", warmImageModel\);/);
+  assert.match(app, /drop\.addEventListener\("dragenter", warmImageModel\);/);
+  assert.match(functionSource(app, "warmImageModel"), /try \{ if \(window\.OnnxDetector && typeof window\.OnnxDetector\.warm === "function"\) window\.OnnxDetector\.warm\(\); \} catch \(_\) \{\}/);
+});
+
 // ---------- app.js: stage queue ----------
 
 function clock() {
