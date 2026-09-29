@@ -313,7 +313,12 @@ try {
   }
   if (!answered) throw new Error("the app's page never answered DevTools commands");
   if (probeOnly) {
-    log("PROBE OK: the page loaded and answers:", JSON.stringify(await page.evaluate(() => document.readyState + " " + document.title)));
+    // Loaded, then still alive 10 s later: a page process that crashes after
+    // its first answer fails here too.
+    await page.waitFor(() => document.readyState === "complete", 60_000, "the page to finish loading");
+    await sleep(10_000);
+    if (rendererCrashed()) throw new Error("the app's page process crashed after loading (see the app log below)");
+    log("PROBE OK: the page loaded and still answers 10 s later:", JSON.stringify(await page.evaluate(() => document.readyState + " " + document.title, undefined, 15_000)));
     throw Object.assign(new Error("probe finished"), { probeOk: true });
   }
   await page.send("Runtime.enable");

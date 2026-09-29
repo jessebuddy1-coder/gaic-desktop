@@ -100,7 +100,7 @@ jobs:
           # Stand-in for a person's settings: the app data folder must survive the upgrade.
           New-Item -ItemType Directory -Force "$env:APPDATA\GAIC" | Out-Null
           Set-Content "$env:APPDATA\GAIC\upgrade-marker.txt" 'kept'
-      - name: Probe the unchanged 2.4.0 app on this machine (diagnostic)
+      - name: Probe the unchanged 2.4.0 app, which has no locale file (diagnostic)
         continue-on-error: true
         working-directory: engine/desktop
         run: node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/probe-2.4.0 --probe
@@ -128,13 +128,6 @@ jobs:
           cmp app/GAIC.exe "$dir/GAIC.exe"
           cmp app/resources/app.asar "$dir/resources/app.asar"
           ls -la "$APPDATA/Microsoft/Windows/Start Menu/Programs/GAIC.lnk" "$USERPROFILE/Desktop/GAIC.lnk"
-      - name: Probe the new app with and without the sandbox and GPU (diagnostic)
-        continue-on-error: true
-        working-directory: engine/desktop
-        run: |
-          node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/probe-new --probe || true
-          node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/probe-new-nosandbox --probe --no-sandbox || true
-          node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/probe-new-nogpu --probe --disable-gpu || true
       - name: Run checks in the installed app
         working-directory: engine/desktop
         run: node smoke.mjs "$INSTALL_DIR\\GAIC.exe" ../../out/windows
