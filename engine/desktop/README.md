@@ -36,7 +36,12 @@ machines whenever `engine/` changes on the engine branch:
    `RELEASE-NOTES.md`. An existing release is never overwritten.
 
 What stays the same as 2.4.0: every file outside the runtime folder, including
-the executables and `app.asar` (which the Windows build checks byte for byte).
+the executables and `app.asar` (which the Windows build checks byte for byte),
+with one addition on Windows: the 2.4.0 installer shipped an empty `locales`
+folder, and on Windows the app's page process then crashed at start (the
+unchanged 2.4.0 app does the same on GitHub's Windows machines). The build
+restores Electron 43.2.0's `locales/en-US.pak` from Electron's own release,
+checked against its published SHA-256.
 On macOS, only the runtime files, `Info.plist`'s version fields, and the ad hoc
 signature change, so the About panel shows the new version. The version the
 shell reports internally (`app.getVersion()`, from `app.asar`) stays 2.4.0;

@@ -56,6 +56,17 @@ jobs:
           ls app app/resources
       - name: Apply the engine update (runs the engine tests)
         run: engine/desktop/prepare-runtime.sh app/resources/app "${{ steps.rel.outputs.version }}" "$GITHUB_SHA"
+      - name: Restore Electron's en-US locale file (2.4.0 shipped an empty locales folder)
+        run: |
+          test -z "$(ls -A app/locales)" || { echo "app/locales is not empty"; ls app/locales; exit 1; }
+          base=https://github.com/electron/electron/releases/download/v43.2.0
+          curl -fsSL -o electron-win.zip "$base/electron-v43.2.0-win32-x64.zip"
+          curl -fsSL -o electron-SHASUMS256.txt "$base/SHASUMS256.txt"
+          want=$(grep ' \*electron-v43.2.0-win32-x64.zip$' electron-SHASUMS256.txt | cut -d' ' -f1)
+          test -n "$want" && echo "$want  electron-win.zip" | sha256sum -c -
+          7z x -y electron-win.zip 'locales/en-US.pak' -oelectron-win > /dev/null
+          cp electron-win/locales/en-US.pak app/locales/en-US.pak
+          ls -la app/locales
       - name: Build the installer
         working-directory: engine/desktop
         run: |
@@ -184,6 +195,7 @@ jobs:
           codesign -dvvv work/GAIC.app 2>&1 | head -30
           codesign -d --entitlements - work/GAIC.app 2>&1 | head -30 || true
           codesign --verify --deep --strict --verbose=2 work/GAIC.app || echo "note: the 2.4.0 app does not pass strict verification"
+          echo "locale folders in Electron Framework: $(ls "work/GAIC.app/Contents/Frameworks/Electron Framework.framework/Resources" | grep -c '\.lproj$' || true)"
       - name: Apply the engine update (runs the engine tests)
         run: engine/desktop/prepare-runtime.sh work/GAIC.app/Contents/Resources/app "${{ steps.rel.outputs.version }}" "$GITHUB_SHA"
       - name: Set the version and re-sign ad hoc, as 2.4.0 was
