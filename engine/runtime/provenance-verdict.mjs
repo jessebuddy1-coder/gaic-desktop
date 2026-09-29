@@ -501,6 +501,9 @@ export function assessImageEvidence(input) {
   const hasC2PA = container.hasC2PA === true && !derivedFromHEIF;
   const hasExif = container.hasExif === true && !derivedFromHEIF;
   const generatorTagged = metadata.generatorTagged === true && !derivedFromHEIF;
+  // China's AI-content label (GB 45438-2025): "1" AI-generated, "2" possibly,
+  // "3" suspected AI-generated; "" when absent.
+  const aiContentLabel = derivedFromHEIF ? "" : normalizeString(metadata.aiContentLabel, 1);
   const capture = gradeCaptureMetadata(derivedFromHEIF ? {} : metadata.exif);
   const pixel = pixelView(evidence.pixel);
   const knownGenerator = !!(sourceContext && sourceContext.knownGenerator === true);
@@ -601,16 +604,24 @@ export function assessImageEvidence(input) {
      synthetic origin for this file, and a declaration against interest. The
      inverse is deliberately refused: an unsigned digitalCapture declaration is
      a self-report in favour of interest and earns no promotion at all. */
-  if (declarations.declaresAiSource === true) {
+  const labelLine = {
+    "1": "The file's metadata carries China's AI-generated content label (GB 45438-2025), marking it as AI-generated.",
+    "2": "The file's metadata carries China's AI-generated content label (GB 45438-2025), marking it as possibly AI-generated.",
+    "3": "The file's metadata carries China's AI-generated content label (GB 45438-2025), marking it as suspected AI-generated.",
+  }[aiContentLabel];
+  if (declarations.declaresAiSource === true || labelLine) {
+    const declared = declarations.declaresAiSource === true || aiContentLabel === "1";
     return result({
       tier: "declared-ai-source-type",
       lead: "metadata",
-      headline: "Metadata declares AI origin — unsigned",
+      headline: declared
+        ? "Metadata declares AI origin — unsigned"
+        : "Metadata labels this as possibly AI-generated — unsigned",
       band: BANDS.DECLARED_GENERATOR_CLUE,
-      establishes: [
+      establishes: (declarations.declaresAiSource === true ? [
         "The file's own metadata declares a synthetic digital source type.",
         "That is a controlled-vocabulary claim about origin, not merely a tool name.",
-      ],
+      ] : []).concat(labelLine ? [labelLine] : []),
       doesNotEstablish: withUniversalLimits([
         "This declaration is not signed, so nothing verifies who wrote it.",
         "Metadata is freely editable and can be copied onto an unrelated file.",
@@ -1021,6 +1032,13 @@ const LEAN_WEIGHTS = Object.freeze({
   // "gemini" and "imagen" are also ordinary words and names in captions.
   generatorTaggedAmbiguous: 1.0,
   generativeHistoryStep: 1.5,
+  // China's AI-content label (GB 45438-2025). Label 1 is written by the
+  // generation service itself; under the labeling rules a platform writes 2
+  // when the uploader declared the content AI-generated and 3 when it only
+  // suspects so from visible marks or other traces.
+  aiContentLabel: 3.0,
+  aiContentLabelDeclared: 2.0,
+  aiContentLabelSuspected: 1.0,
   knownGenerator: 1.5,
   validCaptureCredential: -2.5,
   exifCorroborated: -1.5,
@@ -1127,6 +1145,11 @@ export function decideImageLean(input) {
     drivers.push("generator-named");
   }
   if (declarations.generativeHistoryStep) { origin = Math.max(origin, LEAN_WEIGHTS.generativeHistoryStep); drivers.push("generative-edit-step"); }
+  const aiLabel = heif ? "" : normalizeString(metadata.aiContentLabel, 1);
+  const labelWeight = aiLabel === "1" ? LEAN_WEIGHTS.aiContentLabel
+    : aiLabel === "2" ? LEAN_WEIGHTS.aiContentLabelDeclared
+      : aiLabel === "3" ? LEAN_WEIGHTS.aiContentLabelSuspected : 0;
+  if (labelWeight) { origin = Math.max(origin, labelWeight); drivers.push("ai-content-label"); }
   const context = evidence.sourceContext && evidence.sourceContext.knownGenerator === true ? LEAN_WEIGHTS.knownGenerator : 0;
   if (context) drivers.push("generator-site");
   let capture = 0;

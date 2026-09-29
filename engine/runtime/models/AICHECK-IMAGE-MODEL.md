@@ -373,6 +373,36 @@ deliberately less confident than photo leans. See `RESULTS.md`.
   AI-origin credential and a trusted capture credential decide the lean
   outright.
 
+**Metadata clues.** Besides Content Credentials, `app.js` reads generator
+clues from the file's decoded metadata text (EXIF, XMP, and PNG text fields,
+never the pixel bytes). Each clue adds a judgment-set log-likelihood ratio in
+`decideImageLean`; inside the class only the strongest counts:
+
+| Clue | Log-LR |
+| --- | --- |
+| Generation settings: a PNG `parameters`/`prompt`/`workflow` chunk, or the Stable Diffusion settings line (`Steps: …, Sampler: …` with `CFG scale` or `Seed`) or a ComfyUI node graph in the EXIF user comment or XMP | 3.5 |
+| IPTC digital source type declaring a synthetic origin | 3.0 |
+| China's AI-content label (GB 45438-2025, an `AIGC` field with `Label` and `ContentProducer`): label 1, AI-generated (written by the generation service) | 3.0 |
+| The same label 2, possibly AI-generated (a platform writes it when the uploader declared AI) | 2.0 |
+| The same label 3, suspected AI-generated (a platform suspects it from marks or traces) | 1.0 |
+| A named AI tool (Midjourney, Stable Diffusion, SDXL, DALL·E, Adobe Firefly, OpenAI, NovelAI, ComfyUI, InvokeAI, Fooocus, and others) | 2.5 |
+| Only a name that is also an ordinary word or name (Gemini, Imagen, Ideogram) | 1.0 |
+| A generative step in the edit history | 1.5 |
+
+Tool names count only where a tool records itself (software fields, generator
+text chunks, edit histories), not in captions, titles, keywords, or rights
+notes (XMP free-text fields and the EXIF image description): a news photo
+captioned "OpenAI CEO Sam Altman speaks" is not a generator record. The parser
+turns non-ASCII bytes into spaces, so "DALL·E" is matched with its separator,
+and the Italian word "dalle" no longer counts as a tool name. Of
+the 1,344 AI evaluation images that carry metadata, a clue fires on 772 (769
+before: the settings reader and the label add 2 JPEGs with Stable Diffusion
+settings in the EXIF comment and 1 image with label 2). No clue fires on any
+of the 2,255 real evaluation images with metadata or on the 89 camera photos
+of the public `exif-samples` collection. Most public AI images have
+lost their metadata on the way, so these clues matter most for files straight
+from a generator. See `RESULTS.md`.
+
 ## Independent second-model candidate
 
 Nonescape Mini v0 was evaluated as a possible separate local signal after the

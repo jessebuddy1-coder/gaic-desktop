@@ -84,6 +84,18 @@ The scan-v6 results above used the unchanged v2 model file.
 | Reports | `image_report_v3.mjs`, `tradeoff.py`, `screens_report.py` | `image_report_v3.mjs` recomputes every published photo and screenshot figure with the app's own decision code (worker calibration and composite path, `decideImageLean`), from the per-image held-out frame and picture logits in `results/image_v3_held_out.jsonl` and `results/image_v3_screens_held_out.jsonl` (hashed ids), into `results/image_v3_report.json`; threshold trade-off; screenshot results |
 | Browser checks | `ui_check.mjs`, `e2e.mjs` | drives the real page in Chromium (ORT-Web WASM): result card text for photos, screenshots, large photos, text, video; `results/video_v3_e2e.jsonl` |
 
+## Photo metadata clues
+
+`metadata_clues.mjs` runs the app's own metadata parser and clue readers
+(tool names, generation settings, China's AI-content label, and, through the
+unchanged `container-provenance.mjs`, PNG settings keys and XMP declarations)
+over every image in the given folders, and counts how often a clue fires on AI
+and on real images, as 2.4.0 read them and now. Folders named `real_…` hold
+real images, as does every root after `--real` (the camera photos of the public
+`ianare/exif-samples` collection). It writes `results/metadata_clues.json`.
+
+    GAIC_RUNTIME=work/runtime node metadata_clues.mjs data/img data/scout --real data/exif-samples
+
 ## Text decision (lean, confidence, AI likelihood)
 
 `textcal.py` sets the lean threshold (≤5% of human documents leaning AI,

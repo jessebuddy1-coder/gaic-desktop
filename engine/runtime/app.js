@@ -829,6 +829,111 @@
   }
 
   // ---------- IMAGE: Content Credentials (C2PA) + metadata read ----------
+  // Generator clues in the file's own decoded metadata text (EXIF, XMP, and
+  // PNG text fields; never the raw pixel bytes). Every one is unsigned and
+  // editable, so each is a clue for the lean, not proof.
+  //
+  // Tool names. rangeToAscii turns each non-ASCII byte into a space, so
+  // "DALL·E" arrives as "DALL  E"; a separator is required so that the
+  // Italian word "dalle" does not count. The ambiguous names are also ordinary
+  // words or names, so a match on them alone counts for less in the lean.
+  const GENERATOR_NAMES = /\b(midjourney|stable[ -]?diffusion|sdxl|dall(?:-| {1,2})e|adobe firefly|generative[ -]?fill|openai|novelai|comfyui|automatic1111|invokeai|fooocus|diffusionbee|dreamstudio|nightcafe|craiyon|leonardo[. ]ai|stability[. ]ai|bing image creator|seedream)\b/i;
+  const AMBIGUOUS_GENERATOR_NAMES = /\b(gemini|imagen|ideogram)\b/i;
+  const METADATA_TEXT_LIMIT = 262144;
+
+  function unescapeQuotes(text) {
+    return text.replace(/&quot;|&#34;|&#x22;/gi, '"');
+  }
+
+  // Generation settings: the "Steps: 30, Sampler: Euler a, CFG scale: 7,
+  // Seed: 1234" line that Stable Diffusion web UI and its forks write, or a
+  // ComfyUI node graph. container-provenance.mjs finds them as PNG text-chunk
+  // keys; JPEG and WebP files carry them in the EXIF user comment or XMP,
+  // which only this check reads.
+  function hasGenerationSettings(text) {
+    const source = unescapeQuotes(String(text || "").slice(0, METADATA_TEXT_LIMIT));
+    if (/\bSteps: \d{1,4}, Sampler: [^,\n]{1,48},/.test(source) && /\b(?:CFG scale|Seed): \d/.test(source)) return true;
+    return /"class_type"\s*:\s*"[^"\n]{1,80}"/.test(source) && /"inputs"\s*:\s*\{/.test(source);
+  }
+
+  // China's mandatory labeling standard for AI-generated content
+  // (GB 45438-2025) has generation services and sharing platforms write an
+  // "AIGC" metadata field (in XMP, a PNG text chunk, or the EXIF user comment):
+  // a small JSON object whose "Label" is 1 (AI-generated), 2 (possibly
+  // AI-generated), or 3 (suspected AI-generated), beside the provider's code in
+  // "ContentProducer". Returns "1", "2", "3", or "" when there is no label.
+  function readAiContentLabel(text) {
+    const source = String(text || "").slice(0, METADATA_TEXT_LIMIT);
+    const lower = source.toLowerCase();
+    let at = lower.indexOf("aigc");
+    for (let seen = 0; at !== -1 && seen < 32; seen += 1) {
+      const field = /^aigc[^{}<]{0,40}\{([^{}]{0,1500})\}/i.exec(unescapeQuotes(source.slice(at, at + 2400)));
+      if (field) {
+        const label = /"Label"\s*:\s*"?([123])\b/i.exec(field[1]);
+        if (label && /"ContentProducer"\s*:/i.test(field[1])) return label[1];
+      }
+      at = lower.indexOf("aigc", at + 4);
+    }
+    return "";
+  }
+
+  // Captions, titles, keywords, and rights notes describe the picture
+  // ("OpenAI CEO Sam Altman speaks...") rather than record the tool that made
+  // it, so tool names are not looked for there: XMP free-text fields and the
+  // EXIF image description are left out. Tool names still count in software
+  // fields, generator text chunks, and edit histories.
+  const CAPTION_FIELDS = ["dc:description", "dc:title", "dc:subject", "dc:rights", "photoshop:headline",
+    "photoshop:instructions", "photoshop:captionwriter", "iptc4xmpcore:alttextaccessibility",
+    "iptc4xmpcore:extdescraccessibility", "lr:hierarchicalsubject", "xmprights:usageterms", "exif:usercomment"];
+  function withoutCaptions(text, exifCaption) {
+    const source = String(text || "").slice(0, METADATA_TEXT_LIMIT);
+    const lower = source.toLowerCase();
+    if (lower.length !== source.length) return source;
+    const cuts = [];
+    for (const name of CAPTION_FIELDS) {
+      // Element form: <name ...>...</name>
+      for (let from = 0, n = 0; n < 64; n += 1) {
+        const open = lower.indexOf("<" + name, from);
+        if (open === -1) break;
+        const close = lower.indexOf("</" + name + ">", open);
+        if (close === -1) break;
+        from = close + name.length + 3;
+        cuts.push([open, from]);
+      }
+      // Attribute form: name="..."
+      for (let from = 0, n = 0; n < 64; n += 1) {
+        const at = lower.indexOf(name, from);
+        if (at === -1) break;
+        from = at + name.length;
+        const quote = /^\s{0,4}=\s{0,4}(["'])/.exec(source.slice(from, from + 12));
+        if (!quote) continue;
+        const start = from + quote[0].length;
+        const end = source.indexOf(quote[1], start);
+        if (end === -1) break;
+        cuts.push([at, end + 1]);
+        from = end + 1;
+      }
+    }
+    const caption = typeof exifCaption === "string" ? exifCaption : "";
+    if (caption.trim().length >= 3) {
+      for (let from = 0, n = 0; n < 8; n += 1) {
+        const at = source.indexOf(caption, from);
+        if (at === -1) break;
+        from = at + caption.length;
+        cuts.push([at, from]);
+      }
+    }
+    if (!cuts.length) return source;
+    cuts.sort((a, b) => a[0] - b[0]);
+    let out = "", last = 0;
+    for (const [start, end] of cuts) {
+      if (end <= last) continue;
+      out += source.slice(last, Math.max(last, start)) + " ";
+      last = end;
+    }
+    return out + source.slice(last);
+  }
+
   async function analyzeImage(file, sourceContextValue) {
     const derivedFromHEIF = !!(file && file.aicheckInputContext === "heif-derived-jpeg");
     // Any locally re-encoded input invalidates container evidence, because the
@@ -866,11 +971,14 @@
     // not anywhere in the raw byte stream (which produces false positives when
     // ordinary image bytes happen to contain a substring like "imagen").
     let generatorTextKeys = [];
-    let aiTags = !derivedFromHEIF && /\b(midjourney|stable[ -]?diffusion|dall[ -]?e|adobe firefly|generative[ -]?fill|openai|gemini|imagen)\b/i.test(meta.metaText || "");
-    // "gemini" and "imagen" are also ordinary words and names, so a match on
-    // them alone counts for less in the lean.
-    const aiTagAmbiguous = aiTags &&
-      !/\b(midjourney|stable[ -]?diffusion|dall[ -]?e|adobe firefly|generative[ -]?fill|openai)\b/i.test(meta.metaText || "");
+    const metaText = derivedFromHEIF ? "" : (meta.metaText || "");
+    const generationSettings = hasGenerationSettings(metaText);
+    const aiContentLabel = readAiContentLabel(metaText);
+    const toolText = withoutCaptions(metaText, meta.exif && meta.exif.captionText);
+    const namedGenerator = GENERATOR_NAMES.test(toolText);
+    let aiTags = generationSettings || namedGenerator || AMBIGUOUS_GENERATOR_NAMES.test(toolText);
+    // Only an ambiguous name matched: it counts for less in the lean.
+    const aiTagAmbiguous = aiTags && !generationSettings && !namedGenerator;
 
     let provenance = derivedFromHEIF
       ? { status: "unsupported", sourceClass: "unknown" }
@@ -972,8 +1080,19 @@
         (generatorTextKeys.length === 1 ? " " : "s ") + generatorTextKeys.join(", ") +
         ", which generation tools write to record their own settings. The chunk is editable and " +
         "can be copied onto another file, so verify the original before relying on it.");
+    } else if (generationSettings) {
+      parts.push("Generator clue: the file's metadata records image-generation settings (sampler, steps, seed, or a node graph) " +
+        "in the form Stable Diffusion tools write. The field is editable and can be copied onto another file, so verify the " +
+        "original before relying on it.");
     } else if (aiTags) {
       parts.push("Generator clue: editable metadata names a known AI tool. Verify the original file and provenance before relying on it.");
+    }
+    if (aiContentLabel) {
+      parts.push("AI-content label: the file's metadata carries the label defined by China's national standard for " +
+        "AI-generated content (GB 45438-2025), marking it as " +
+        (aiContentLabel === "1" ? "AI-generated" : aiContentLabel === "2" ? "possibly AI-generated" : "suspected AI-generated") +
+        ". Generation services and sharing platforms write this label; like other metadata, it is unsigned and can be " +
+        "edited or removed.");
     }
     if (sourceContext) {
       parts.push(sourceContext.knownGenerator
@@ -1072,7 +1191,8 @@
       provenance,
       container: { hasC2PA, hasExif, hasXMP, derivedFromHEIF },
       metadata: { generatorTagged: aiTags, generatorTagAmbiguous: aiTagAmbiguous && !generatorTextKeys.length,
-        generatorParameters: generatorTextKeys.length > 0,
+        generatorParameters: generatorTextKeys.length > 0 || generationSettings,
+        aiContentLabel,
         exif: derivedFromHEIF ? {} : (meta.exif || {}) },
       encoder: encoderEvidence,
       declarations: containerDeclarations,
@@ -2179,6 +2299,15 @@
           if (count > 0) out.hasMakerNote = true;
           continue;
         }
+        if (tag === 0x010E && type === 2){              // ImageDescription: a caption
+          // Kept exactly as rangeToAscii renders it in metaText, so the tool-name
+          // check can leave it out (see withoutCaptions).
+          const offset = exifValueOffset(b, t, e, le, type, count);
+          if (offset >= 0 && out.captionText === undefined) {
+            out.captionText = rangeToAscii(b, offset, offset + Math.min(count, 65536));
+          }
+          continue;
+        }
         if (ASCII_TAGS[tag]){
           const text = exifAscii(b, t, e, le, type, count);
           if (text && out[ASCII_TAGS[tag]] === undefined) out[ASCII_TAGS[tag]] = text;
@@ -3065,6 +3194,7 @@
     "Corroborating camera metadata — not proof": "Several camera details agree with each other — supporting context, not proof",
     "Camera metadata and write structure agree — not proof": "Camera details and how the file was saved both point the same way — still not proof",
     "Metadata declares AI origin — unsigned": "The file's own labels say it was AI-made, but nothing signed that claim",
+    "Metadata labels this as possibly AI-generated — unsigned": "The file's own labels say it may be AI-made, but nothing signed that claim",
     "Edit history records a generative step": "The file's edit history mentions an AI editing step — check what it changed",
     "File structure matches a generator write path": "How this file was saved matches a known AI-tool save path — this is about the file, not the picture",
     "Container was rewritten — origin unrecoverable": "This file was re-saved along the way, so its original creation details are gone",
@@ -3192,6 +3322,10 @@
     if (verdict === "Metadata declares AI origin — unsigned") {
       return "The file's own labels say it was AI-generated. Nothing signed that label, so it could have been " +
         "written or copied by anyone — but a file rarely claims this about itself without reason.";
+    }
+    if (verdict === "Metadata labels this as possibly AI-generated — unsigned") {
+      return "The file carries a label saying it may be AI-generated, of the kind sharing platforms add when an uploader " +
+        "declares AI or the platform suspects it. Nothing signed that label, and it can be edited or removed.";
     }
     if (verdict === "Edit history records a generative step") {
       return "The file's edit history mentions an AI editing step. That means AI touched part of this image, " +

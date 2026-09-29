@@ -39,7 +39,7 @@ index 2151026..dcb0c84 100644
  <script src="onnx-detector.js"></script>
  <script type="module" src="c2pa-verifier.mjs"></script>
 diff --git a/app.js b/app.js
-index 19041e1..a0f410d 100644
+index 19041e1..8f922c0 100644
 --- a/app.js
 +++ b/app.js
 @@ -13,13 +13,10 @@
@@ -370,7 +370,119 @@ index 19041e1..a0f410d 100644
    });
  
    // The worker is same-origin, but treat its diagnostics as untrusted structured
-@@ -652,6 +841,7 @@
+@@ -640,6 +829,111 @@
+   }
+ 
+   // ---------- IMAGE: Content Credentials (C2PA) + metadata read ----------
++  // Generator clues in the file's own decoded metadata text (EXIF, XMP, and
++  // PNG text fields; never the raw pixel bytes). Every one is unsigned and
++  // editable, so each is a clue for the lean, not proof.
++  //
++  // Tool names. rangeToAscii turns each non-ASCII byte into a space, so
++  // "DALL·E" arrives as "DALL  E"; a separator is required so that the
++  // Italian word "dalle" does not count. The ambiguous names are also ordinary
++  // words or names, so a match on them alone counts for less in the lean.
++  const GENERATOR_NAMES = /\b(midjourney|stable[ -]?diffusion|sdxl|dall(?:-| {1,2})e|adobe firefly|generative[ -]?fill|openai|novelai|comfyui|automatic1111|invokeai|fooocus|diffusionbee|dreamstudio|nightcafe|craiyon|leonardo[. ]ai|stability[. ]ai|bing image creator|seedream)\b/i;
++  const AMBIGUOUS_GENERATOR_NAMES = /\b(gemini|imagen|ideogram)\b/i;
++  const METADATA_TEXT_LIMIT = 262144;
++
++  function unescapeQuotes(text) {
++    return text.replace(/&quot;|&#34;|&#x22;/gi, '"');
++  }
++
++  // Generation settings: the "Steps: 30, Sampler: Euler a, CFG scale: 7,
++  // Seed: 1234" line that Stable Diffusion web UI and its forks write, or a
++  // ComfyUI node graph. container-provenance.mjs finds them as PNG text-chunk
++  // keys; JPEG and WebP files carry them in the EXIF user comment or XMP,
++  // which only this check reads.
++  function hasGenerationSettings(text) {
++    const source = unescapeQuotes(String(text || "").slice(0, METADATA_TEXT_LIMIT));
++    if (/\bSteps: \d{1,4}, Sampler: [^,\n]{1,48},/.test(source) && /\b(?:CFG scale|Seed): \d/.test(source)) return true;
++    return /"class_type"\s*:\s*"[^"\n]{1,80}"/.test(source) && /"inputs"\s*:\s*\{/.test(source);
++  }
++
++  // China's mandatory labeling standard for AI-generated content
++  // (GB 45438-2025) has generation services and sharing platforms write an
++  // "AIGC" metadata field (in XMP, a PNG text chunk, or the EXIF user comment):
++  // a small JSON object whose "Label" is 1 (AI-generated), 2 (possibly
++  // AI-generated), or 3 (suspected AI-generated), beside the provider's code in
++  // "ContentProducer". Returns "1", "2", "3", or "" when there is no label.
++  function readAiContentLabel(text) {
++    const source = String(text || "").slice(0, METADATA_TEXT_LIMIT);
++    const lower = source.toLowerCase();
++    let at = lower.indexOf("aigc");
++    for (let seen = 0; at !== -1 && seen < 32; seen += 1) {
++      const field = /^aigc[^{}<]{0,40}\{([^{}]{0,1500})\}/i.exec(unescapeQuotes(source.slice(at, at + 2400)));
++      if (field) {
++        const label = /"Label"\s*:\s*"?([123])\b/i.exec(field[1]);
++        if (label && /"ContentProducer"\s*:/i.test(field[1])) return label[1];
++      }
++      at = lower.indexOf("aigc", at + 4);
++    }
++    return "";
++  }
++
++  // Captions, titles, keywords, and rights notes describe the picture
++  // ("OpenAI CEO Sam Altman speaks...") rather than record the tool that made
++  // it, so tool names are not looked for there: XMP free-text fields and the
++  // EXIF image description are left out. Tool names still count in software
++  // fields, generator text chunks, and edit histories.
++  const CAPTION_FIELDS = ["dc:description", "dc:title", "dc:subject", "dc:rights", "photoshop:headline",
++    "photoshop:instructions", "photoshop:captionwriter", "iptc4xmpcore:alttextaccessibility",
++    "iptc4xmpcore:extdescraccessibility", "lr:hierarchicalsubject", "xmprights:usageterms", "exif:usercomment"];
++  function withoutCaptions(text, exifCaption) {
++    const source = String(text || "").slice(0, METADATA_TEXT_LIMIT);
++    const lower = source.toLowerCase();
++    if (lower.length !== source.length) return source;
++    const cuts = [];
++    for (const name of CAPTION_FIELDS) {
++      // Element form: <name ...>...</name>
++      for (let from = 0, n = 0; n < 64; n += 1) {
++        const open = lower.indexOf("<" + name, from);
++        if (open === -1) break;
++        const close = lower.indexOf("</" + name + ">", open);
++        if (close === -1) break;
++        from = close + name.length + 3;
++        cuts.push([open, from]);
++      }
++      // Attribute form: name="..."
++      for (let from = 0, n = 0; n < 64; n += 1) {
++        const at = lower.indexOf(name, from);
++        if (at === -1) break;
++        from = at + name.length;
++        const quote = /^\s{0,4}=\s{0,4}(["'])/.exec(source.slice(from, from + 12));
++        if (!quote) continue;
++        const start = from + quote[0].length;
++        const end = source.indexOf(quote[1], start);
++        if (end === -1) break;
++        cuts.push([at, end + 1]);
++        from = end + 1;
++      }
++    }
++    const caption = typeof exifCaption === "string" ? exifCaption : "";
++    if (caption.trim().length >= 3) {
++      for (let from = 0, n = 0; n < 8; n += 1) {
++        const at = source.indexOf(caption, from);
++        if (at === -1) break;
++        from = at + caption.length;
++        cuts.push([at, from]);
++      }
++    }
++    if (!cuts.length) return source;
++    cuts.sort((a, b) => a[0] - b[0]);
++    let out = "", last = 0;
++    for (const [start, end] of cuts) {
++      if (end <= last) continue;
++      out += source.slice(last, Math.max(last, start)) + " ";
++      last = end;
++    }
++    return out + source.slice(last);
++  }
++
+   async function analyzeImage(file, sourceContextValue) {
+     const derivedFromHEIF = !!(file && file.aicheckInputContext === "heif-derived-jpeg");
+     // Any locally re-encoded input invalidates container evidence, because the
+@@ -652,6 +946,7 @@
        file.aicheckInputContext === "device-capture-derived-jpeg"
      ));
      const buf = new Uint8Array(await file.arrayBuffer());
@@ -378,18 +490,23 @@ index 19041e1..a0f410d 100644
      const dims = imageDimensions(buf);
      const geometryError = imageGeometryError(dims);
      if (geometryError) {
-@@ -677,6 +867,10 @@
+@@ -676,7 +971,14 @@
+     // not anywhere in the raw byte stream (which produces false positives when
      // ordinary image bytes happen to contain a substring like "imagen").
      let generatorTextKeys = [];
-     let aiTags = !derivedFromHEIF && /\b(midjourney|stable[ -]?diffusion|dall[ -]?e|adobe firefly|generative[ -]?fill|openai|gemini|imagen)\b/i.test(meta.metaText || "");
-+    // "gemini" and "imagen" are also ordinary words and names, so a match on
-+    // them alone counts for less in the lean.
-+    const aiTagAmbiguous = aiTags &&
-+      !/\b(midjourney|stable[ -]?diffusion|dall[ -]?e|adobe firefly|generative[ -]?fill|openai)\b/i.test(meta.metaText || "");
+-    let aiTags = !derivedFromHEIF && /\b(midjourney|stable[ -]?diffusion|dall[ -]?e|adobe firefly|generative[ -]?fill|openai|gemini|imagen)\b/i.test(meta.metaText || "");
++    const metaText = derivedFromHEIF ? "" : (meta.metaText || "");
++    const generationSettings = hasGenerationSettings(metaText);
++    const aiContentLabel = readAiContentLabel(metaText);
++    const toolText = withoutCaptions(metaText, meta.exif && meta.exif.captionText);
++    const namedGenerator = GENERATOR_NAMES.test(toolText);
++    let aiTags = generationSettings || namedGenerator || AMBIGUOUS_GENERATOR_NAMES.test(toolText);
++    // Only an ambiguous name matched: it counts for less in the lean.
++    const aiTagAmbiguous = aiTags && !generationSettings && !namedGenerator;
  
      let provenance = derivedFromHEIF
        ? { status: "unsupported", sourceClass: "unknown" }
-@@ -686,6 +880,7 @@
+@@ -686,6 +988,7 @@
        // manifest, signature and asset binding locally. Its remote-manifest
        // fetch is disabled in c2pa-verifier.mjs, so a file cannot make this
        // check contact an address embedded inside it.
@@ -397,7 +514,7 @@ index 19041e1..a0f410d 100644
        const checked = await window.C2PAVerifier.verify(file);
        provenance = checked && typeof checked.status === "string"
          ? checked
-@@ -702,6 +897,7 @@
+@@ -702,6 +1005,7 @@
          typeof window.ContainerProvenance.readContainerStructure === "function" &&
          window.ProvenanceVerdict &&
          typeof window.ProvenanceVerdict.gradeEncoderStructure === "function") {
@@ -405,7 +522,7 @@ index 19041e1..a0f410d 100644
        try {
          const structure = window.ContainerProvenance.readContainerStructure(buf, {
            xmpText: meta.metaText || "",
-@@ -727,7 +923,8 @@
+@@ -727,7 +1031,8 @@
      let score = null, rawModelScore = null, metricLabel = "Image-model score";
      let imageRegionScores = [];
      let uncalibratedCompositeFrame = false;
@@ -415,7 +532,7 @@ index 19041e1..a0f410d 100644
      if (derivedFromHEIF) {
        parts.push("Original HEIC/HEIF limit: GAIC made a bounded JPEG derivative locally for the visual model. The original file's Content Credentials and EXIF/XMP metadata were not evaluated, and their presence or absence cannot be inferred from this derivative.");
      } else if (locallyDerived) {
-@@ -740,12 +937,12 @@
+@@ -740,12 +1045,12 @@
        parts.push("Content Credentials: provenance data was found but failed validation. Do not rely on its claims; the file may be damaged, altered after signing, malformed, or use a credential this validator cannot verify.");
      } else if (provenance.status === "unavailable") {
        parts.push(hasC2PA
@@ -431,7 +548,28 @@ index 19041e1..a0f410d 100644
      } else {
        parts.push("Content Credentials: none detected. Credentials are optional and can be removed, so absence says nothing about whether an image is trustworthy.");
      }
-@@ -788,70 +985,66 @@
+@@ -775,9 +1080,20 @@
+         (generatorTextKeys.length === 1 ? " " : "s ") + generatorTextKeys.join(", ") +
+         ", which generation tools write to record their own settings. The chunk is editable and " +
+         "can be copied onto another file, so verify the original before relying on it.");
++    } else if (generationSettings) {
++      parts.push("Generator clue: the file's metadata records image-generation settings (sampler, steps, seed, or a node graph) " +
++        "in the form Stable Diffusion tools write. The field is editable and can be copied onto another file, so verify the " +
++        "original before relying on it.");
+     } else if (aiTags) {
+       parts.push("Generator clue: editable metadata names a known AI tool. Verify the original file and provenance before relying on it.");
+     }
++    if (aiContentLabel) {
++      parts.push("AI-content label: the file's metadata carries the label defined by China's national standard for " +
++        "AI-generated content (GB 45438-2025), marking it as " +
++        (aiContentLabel === "1" ? "AI-generated" : aiContentLabel === "2" ? "possibly AI-generated" : "suspected AI-generated") +
++        ". Generation services and sharing platforms write this label; like other metadata, it is unsigned and can be " +
++        "edited or removed.");
++    }
+     if (sourceContext) {
+       parts.push(sourceContext.knownGenerator
+         ? "Source context: you said this came from " + sourceContext.hostname +
+@@ -788,70 +1104,66 @@
      }
      if (isGif) parts.push("Animated-image limit: a GIF is checked as one decoded frame. Other animation frames are not analyzed; export representative still frames for a broader review.");
  
@@ -542,7 +680,7 @@ index 19041e1..a0f410d 100644
      if (rawModelScore == null) {
        const configured = !!(window.AICHECK_ONNX && window.AICHECK_ONNX.model);
        const boundedModelError =
-@@ -860,36 +1053,50 @@
+@@ -860,36 +1172,51 @@
            ? window.OnnxDetector.lastError.slice(0, 300)
            : "";
        parts.push((configured
@@ -592,7 +730,8 @@ index 19041e1..a0f410d 100644
 +      provenance,
 +      container: { hasC2PA, hasExif, hasXMP, derivedFromHEIF },
 +      metadata: { generatorTagged: aiTags, generatorTagAmbiguous: aiTagAmbiguous && !generatorTextKeys.length,
-+        generatorParameters: generatorTextKeys.length > 0,
++        generatorParameters: generatorTextKeys.length > 0 || generationSettings,
++        aiContentLabel,
 +        exif: derivedFromHEIF ? {} : (meta.exif || {}) },
 +      encoder: encoderEvidence,
 +      declarations: containerDeclarations,
@@ -620,7 +759,7 @@ index 19041e1..a0f410d 100644
      }
  
      if (evidence) {
-@@ -900,12 +1107,23 @@
+@@ -900,12 +1227,23 @@
          if (parts.indexOf(limit) === -1) parts.push(limit);
        }
      } else {
@@ -631,9 +770,8 @@ index 19041e1..a0f410d 100644
 +        ? imageSignalVerdict(evidenceInput.pixel.rawScore)
 +        : "No origin record or metadata clue found";
 +      parts.push("Evidence ordering unavailable on this device; this result is based on the pixel scan alone.");
-     }
- 
--    return { kind: "image", score, metricLabel, verdict, explain: parts.join("\n"),
++    }
++
 +    if (!decision) {
 +      // Nothing to decide from: the model did not run and no origin clue was
 +      // found. That is a failed check, not a verdict, and it is not counted.
@@ -642,13 +780,14 @@ index 19041e1..a0f410d 100644
 +        provenanceStatus: provenance.status,
 +        guidance: "Try again, or try a JPEG or PNG copy of the image. This failed check did not use a free check.",
 +        countsTowardLimit: false };
-+    }
-+
+     }
+ 
+-    return { kind: "image", score, metricLabel, verdict, explain: parts.join("\n"),
 +    const imageResult = { kind: "image", score, metricLabel, verdict, explain: parts.join("\n"),
        provenanceStatus: provenance.status,
        evidenceTier: evidence ? evidence.tier : null,
        evidenceBand: evidence ? evidence.band : null,
-@@ -924,7 +1142,18 @@
+@@ -924,7 +1262,18 @@
        } : null,
        mediaSummary: describeMedia(file, dims, derivedFromHEIF ? null : (meta.exif || null),
          derivedFromHEIF ? "converted locally from HEIC/HEIF" : null),
@@ -668,7 +807,7 @@ index 19041e1..a0f410d 100644
    }
  
    /* ================ BEGIN ON-DEVICE-ONLY (video + screen scan) ================
-@@ -940,6 +1169,7 @@
+@@ -940,6 +1289,7 @@
    }
  
    function showProgress(text, fraction) {
@@ -676,7 +815,7 @@ index 19041e1..a0f410d 100644
      const wrap = $("scan-progress"), bar = $("scan-progress-bar"),
        track = $("scan-progress-track"), label = $("scan-progress-text");
      if (!wrap) return;
-@@ -1032,9 +1262,9 @@
+@@ -1032,9 +1382,9 @@
      } else if (provenance.status === "invalid") {
        lines.push("Content Credentials: provenance data was found but failed validation. Do not rely on its claims; the file may be damaged, altered after signing, malformed, or use a credential this validator cannot verify.");
      } else if (provenance.status === "unavailable") {
@@ -688,7 +827,7 @@ index 19041e1..a0f410d 100644
      } else {
        lines.push("Content Credentials: none detected. Credentials are optional and can be removed, so absence says nothing about whether a video is trustworthy or AI-generated.");
      }
-@@ -1049,9 +1279,9 @@
+@@ -1049,9 +1399,9 @@
      } else if (provenance.status === "valid") {
        verdict = "Valid Content Credential — signer trust not established";
      } else if (provenance.status === "unavailable") {
@@ -700,7 +839,7 @@ index 19041e1..a0f410d 100644
      }
  
      if (!validatedAi && provenance.sourceClass === "capture") {
-@@ -1062,8 +1292,60 @@
+@@ -1062,8 +1412,60 @@
      return { status: provenance.status, sourceClass: provenance.sourceClass, verdict, lines };
    }
  
@@ -761,7 +900,7 @@ index 19041e1..a0f410d 100644
    function frameToFile(video, cv, frameNumber) {
      return new Promise((resolve) => {
        try {
-@@ -1073,19 +1355,26 @@
+@@ -1073,19 +1475,26 @@
          cv.width = Math.max(1, Math.round(vw * scale));
          cv.height = Math.max(1, Math.round(vh * scale));
          cv.getContext("2d").drawImage(video, 0, 0, cv.width, cv.height);
@@ -789,7 +928,7 @@ index 19041e1..a0f410d 100644
        const loaded = await new Promise((resolve) => {
          const timer = setTimeout(() => resolve(false), 15000);
          video.onloadedmetadata = () => { clearTimeout(timer); resolve(true); };
-@@ -1108,12 +1397,19 @@
+@@ -1108,12 +1517,19 @@
        }
        if (!loaded || !isFinite(duration) || duration <= 0) {
          if (["trusted", "valid", "invalid"].includes(provenance.status)) {
@@ -815,7 +954,7 @@ index 19041e1..a0f410d 100644
          }
          return { kind: "error", score: null, verdict: "Couldn't read this video",
            explain: provenanceEvidence.lines.concat(["This device couldn't decode the video or read its duration. Try a standard MP4 (H.264) or WebM file. Nothing was uploaded."]).join("\n"),
-@@ -1125,39 +1421,57 @@
+@@ -1125,39 +1541,57 @@
        announce("Checking video — analyzing " + total + " frames on this device.", true);
        const cv = document.createElement("canvas");
        const frameScores = [];
@@ -885,7 +1024,7 @@ index 19041e1..a0f410d 100644
          }
          return { kind: "error", score: null, verdict: "Video frames couldn't be scored",
            explain: provenanceEvidence.lines.concat(["None of the requested seeks produced a confirmed, model-scored still frame. No score was invented, and nothing left your device."]).join("\n"),
-@@ -1166,12 +1480,14 @@
+@@ -1166,12 +1600,14 @@
            countsTowardLimit: false };
        }
        // Honest aggregation: median (typical frame) + max (worst frame). One
@@ -906,7 +1045,7 @@ index 19041e1..a0f410d 100644
        const modelVerdict = frameSignal.verdict;
        const verdict = provenanceEvidence.verdict || modelVerdict;
        const perFrame = frameNotes
-@@ -1182,15 +1498,20 @@
+@@ -1182,15 +1618,20 @@
            (duration > VIDEO_SCAN_WINDOW_SECONDS ? " (long video: only the first " + fmtClock(VIDEO_SCAN_WINDOW_SECONDS) + " is sampled)" : "") +
            ", all on your device. A video check counts as one check against the free weekly allowance.",
          perFrame,
@@ -930,7 +1069,7 @@ index 19041e1..a0f410d 100644
      } finally {
        hideProgress();
        try { video.removeAttribute("src"); video.load(); } catch (e) {}
-@@ -1205,6 +1526,9 @@
+@@ -1205,6 +1646,9 @@
    // Safari, Android/iOS WebView shells), it explains the screenshot fallback
    // that hands the screenshot to the existing photo picker instead.
    async function scanScreen() {
@@ -940,7 +1079,7 @@ index 19041e1..a0f410d 100644
      switchTab("image");
      if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
        const how = "Screen capture isn't available in this browser or app — iPhone/iPad and most in-app views don't offer it. " +
-@@ -1271,17 +1595,27 @@
+@@ -1271,17 +1715,27 @@
          cleanup();
          resolve(frames.filter(Boolean));
        };
@@ -972,7 +1111,7 @@ index 19041e1..a0f410d 100644
          } catch (e) { done(null); }
        });
        let sampler = 0;
-@@ -1329,39 +1663,85 @@
+@@ -1329,39 +1783,85 @@
        maxRaw,
        median: Math.floor(medianRaw + Number.EPSILON),
        maxScore: Math.floor(maxRaw + Number.EPSILON),
@@ -1068,7 +1207,7 @@ index 19041e1..a0f410d 100644
      const valid = scores.filter((s) => Number.isFinite(s));
      if (!valid.length) {
        return { kind: "error", score: null, verdict: "Screen frames couldn't be scored",
-@@ -1369,11 +1749,12 @@
+@@ -1369,11 +1869,12 @@
          guidance: "Try again on a screen with more visible content. This failed check did not use a free check.",
          countsTowardLimit: false };
      }
@@ -1085,7 +1224,7 @@ index 19041e1..a0f410d 100644
        kind: "video",
        score: frameSignal.score,
        metricLabel: "Median frame-model score",
-@@ -1382,12 +1763,17 @@
+@@ -1382,12 +1883,17 @@
          "Screen capture: " + valid.length + " of " + total + " frames sampled across about " +
            SCREEN_CAPTURE_SECONDS + " seconds of the surface you chose, all on your device. Sharing stopped as soon as the capture finished, nothing was recorded to a file, and a screen check counts as one check against the free weekly allowance.",
          perFrame,
@@ -1106,7 +1245,7 @@ index 19041e1..a0f410d 100644
    }
  
    // Screen capture runs its own check: the frames already exist, so it does not
-@@ -1412,7 +1798,7 @@
+@@ -1412,7 +1918,7 @@
          }
        }
        analyticsTrack("check_started", "screen");
@@ -1115,7 +1254,23 @@ index 19041e1..a0f410d 100644
        analyzingSince = Date.now();
        await paintGate();
        const out = await analyzeScreenFrames(frames);
-@@ -2652,25 +3038,25 @@
+@@ -1793,6 +2299,15 @@
+           if (count > 0) out.hasMakerNote = true;
+           continue;
+         }
++        if (tag === 0x010E && type === 2){              // ImageDescription: a caption
++          // Kept exactly as rangeToAscii renders it in metaText, so the tool-name
++          // check can leave it out (see withoutCaptions).
++          const offset = exifValueOffset(b, t, e, le, type, count);
++          if (offset >= 0 && out.captionText === undefined) {
++            out.captionText = rangeToAscii(b, offset, offset + Math.min(count, 65536));
++          }
++          continue;
++        }
+         if (ASCII_TAGS[tag]){
+           const text = exifAscii(b, t, e, le, type, count);
+           if (text && out[ASCII_TAGS[tag]] === undefined) out[ASCII_TAGS[tag]] = text;
+@@ -2652,25 +3167,25 @@
    }
  
    // ---------- friendly result voice ----------
@@ -1150,7 +1305,11 @@ index 19041e1..a0f410d 100644
      "Provenance data found — not validated": "Creation-history data was found, but it could not be validated",
      "Camera metadata found — not proof": "Camera details were found in the file — useful context, not proof",
      // Provenance-first tiers. Each names the evidence found and stops there:
-@@ -2682,7 +3068,7 @@
+@@ -2679,10 +3194,11 @@
+     "Corroborating camera metadata — not proof": "Several camera details agree with each other — supporting context, not proof",
+     "Camera metadata and write structure agree — not proof": "Camera details and how the file was saved both point the same way — still not proof",
+     "Metadata declares AI origin — unsigned": "The file's own labels say it was AI-made, but nothing signed that claim",
++    "Metadata labels this as possibly AI-generated — unsigned": "The file's own labels say it may be AI-made, but nothing signed that claim",
      "Edit history records a generative step": "The file's edit history mentions an AI editing step — check what it changed",
      "File structure matches a generator write path": "How this file was saved matches a known AI-tool save path — this is about the file, not the picture",
      "Container was rewritten — origin unrecoverable": "This file was re-saved along the way, so its original creation details are gone",
@@ -1159,7 +1318,7 @@ index 19041e1..a0f410d 100644
      "Cloud model signal returned — verify": "The optional cloud scan returned a warning signal — check the original source",
      // text
      "Few formulaic patterns matched": "Few common AI-style writing patterns were found",
-@@ -2690,12 +3076,16 @@
+@@ -2690,12 +3206,16 @@
      "Several formulaic patterns matched": "Several common AI-style writing patterns were found — review the text closely",
      // video
      "High model signal in sampled frames — verify": "Strong AI warning signs were found in sampled frames — check the source",
@@ -1177,7 +1336,7 @@ index 19041e1..a0f410d 100644
    };
    function friendlyVerdict(verdict) {
      return FRIENDLY_VERDICTS[verdict] || null;
-@@ -2725,12 +3115,16 @@
+@@ -2725,12 +3245,16 @@
    }
  
    function resultMetric(out) {
@@ -1196,7 +1355,7 @@ index 19041e1..a0f410d 100644
      if (out.kind === "text") return "Pattern signal: " + out.score + "/100";
      if (out.kind === "image" || out.kind === "video") {
        return "Warning signal: " + out.score + "/100";
-@@ -2739,17 +3133,25 @@
+@@ -2739,17 +3263,25 @@
    }
  
    function plainResultCopy(out) {
@@ -1227,7 +1386,7 @@ index 19041e1..a0f410d 100644
      }
      if (verdict === "Generator-site source supplied — verify output") {
        return "The source you entered is a site with AI-generation tools. Confirm that this exact image came from that page.";
-@@ -2766,19 +3168,21 @@
+@@ -2766,19 +3298,21 @@
      if (verdict === "Content Credential failed validation") {
        return "The signed creation record did not pass validation. Do not rely on its claims.";
      }
@@ -1254,7 +1413,18 @@ index 19041e1..a0f410d 100644
      }
      if (verdict === "Camera metadata and write structure agree — not proof") {
        return "The camera details agree with each other, and the way the file was saved also matches a camera. " +
-@@ -2797,10 +3201,9 @@
+@@ -2789,6 +3323,10 @@
+       return "The file's own labels say it was AI-generated. Nothing signed that label, so it could have been " +
+         "written or copied by anyone — but a file rarely claims this about itself without reason.";
+     }
++    if (verdict === "Metadata labels this as possibly AI-generated — unsigned") {
++      return "The file carries a label saying it may be AI-generated, of the kind sharing platforms add when an uploader " +
++        "declares AI or the platform suspects it. Nothing signed that label, and it can be edited or removed.";
++    }
+     if (verdict === "Edit history records a generative step") {
+       return "The file's edit history mentions an AI editing step. That means AI touched part of this image, " +
+         "not necessarily that the whole picture was generated. The history is editable and can be removed.";
+@@ -2797,10 +3335,9 @@
        return "The way this file was written matches a save path GAIC associates with AI tools. This describes " +
          "the file, not the picture, and re-saving any image through the same tool would look identical.";
      }
@@ -1268,7 +1438,7 @@ index 19041e1..a0f410d 100644
      }
      if (verdict === "Container was rewritten — origin unrecoverable") {
        return "This file was re-saved somewhere along the way — usually by a phone gallery, a messaging app, or " +
-@@ -2819,21 +3222,36 @@
+@@ -2819,21 +3356,36 @@
      if (verdict === "High model signal in sampled frames — verify") {
        return "GAIC found strong AI warning signs in the sampled video or screen frames. It did not analyze every frame, audio, or full motion.";
      }
@@ -1310,7 +1480,7 @@ index 19041e1..a0f410d 100644
        primaryResultMetric(out),
        plainResultCopy(out)
      ];
-@@ -2870,12 +3288,13 @@
+@@ -2870,12 +3422,13 @@
      const kindLabels = { text: "Text scan", image: "Photo scan",
        video: "Video-frame scan", error: "Scan status" };
      if (kindEl) kindEl.textContent = kindLabels[out.kind] || "GAIC result";
@@ -1327,7 +1497,7 @@ index 19041e1..a0f410d 100644
      }
      const descEl = $("content-desc");
      if (descEl) {
-@@ -2883,11 +3302,12 @@
+@@ -2883,11 +3436,12 @@
        descEl.textContent = out.mediaSummary || "";
      }
      if (summaryEl) summaryEl.textContent = plainResultCopy(out);
@@ -1343,7 +1513,7 @@ index 19041e1..a0f410d 100644
        if (barEl) barEl.style.width = "0%";
        if (meterEl) meterEl.hidden = true;
      } else {
-@@ -2896,7 +3316,7 @@
+@@ -2896,7 +3450,7 @@
        if (barEl) barEl.style.width = pct + "%";
        if (meterEl) {
          meterEl.hidden = false;
@@ -1352,7 +1522,7 @@ index 19041e1..a0f410d 100644
        }
      }
      if (explainEl) explainEl.textContent = out.explain;
-@@ -2928,12 +3348,12 @@
+@@ -2928,12 +3482,12 @@
      } catch (e) {}
    }
    function announceResult(out) {
@@ -1367,7 +1537,7 @@ index 19041e1..a0f410d 100644
    }
  
    function readResult() {
-@@ -2973,36 +3393,43 @@
+@@ -2973,36 +3527,43 @@
      }
    }
  
@@ -1433,7 +1603,7 @@ index 19041e1..a0f410d 100644
    }
    // A real analysis does not take the same time twice. Vary the floor per run
    // so the scan reads as work rather than a fixed canned pause.
-@@ -3025,48 +3452,508 @@
+@@ -3025,48 +3586,508 @@
        setTimeout(finish, 250); // never stall a check on a hidden tab
      });
    }
@@ -1967,7 +2137,7 @@ index 19041e1..a0f410d 100644
    async function finishAnalyzing(since, kind) {
      if (!since) return;
      const reduced = prefersReducedMotion();
-@@ -3074,9 +3961,14 @@
+@@ -3074,9 +4095,14 @@
      const minShow = analyzeTargetMs || (reduced ? 350 : kind === "text" ? 1300 : 2600);
      const left = minShow - (Date.now() - since);
      if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
@@ -1984,7 +2154,7 @@ index 19041e1..a0f410d 100644
      if (!reduced) await new Promise((resolve) => setTimeout(resolve, 320));
      setAnalyzing(false);
    }
-@@ -3123,14 +4015,16 @@
+@@ -3123,14 +4149,16 @@
          checkStarted = true;
          analyticsTrack("check_started", analyticsMode);
          setAnalyzing(true, "text");
@@ -2002,7 +2172,7 @@ index 19041e1..a0f410d 100644
          analyzingSince = Date.now();
          if (!isVideoFile(pickedFile)) {
            // Capture this check's one-time consent and verified entitlement
-@@ -3212,6 +4106,8 @@
+@@ -3212,6 +4240,8 @@
        });
        // A normal file choice pauses for review before consuming a free check.
        // The explicit Quick Scan shortcut may opt into immediate analysis.
@@ -2011,7 +2181,7 @@ index 19041e1..a0f410d 100644
        input.addEventListener("change", e => {
          const f = e.target.files && e.target.files[0];
          const shouldRun = autoRunAfterPick;
-@@ -3225,6 +4121,7 @@
+@@ -3225,6 +4255,7 @@
        ["dragover","dragenter"].forEach(ev => drop.addEventListener(ev, e => {
          e.preventDefault(); drop.classList.add("is-dragging");
        }));
@@ -2019,7 +2189,7 @@ index 19041e1..a0f410d 100644
        ["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {
          e.preventDefault(); drop.classList.remove("is-dragging");
        }));
-@@ -3480,7 +4377,8 @@
+@@ -3480,7 +4511,8 @@
        normalizeImageRegionScores, isScreenCaptureLikeFrame, frameLayoutContext,
        normalizeSourceContext,
        seekVideo, sanitizeVideoProvenance, verifyVideoProvenance, videoProvenanceEvidence,
@@ -2945,7 +3115,7 @@ index 0cab02c..947fd63 100644
      resizeShortest: 256,
      crop: "center",
 diff --git a/models/AICHECK-IMAGE-MODEL.md b/models/AICHECK-IMAGE-MODEL.md
-index d0e5ef6..33369c8 100644
+index d0e5ef6..40f2930 100644
 --- a/models/AICHECK-IMAGE-MODEL.md
 +++ b/models/AICHECK-IMAGE-MODEL.md
 @@ -1,4 +1,4 @@
@@ -2974,7 +3144,7 @@ index d0e5ef6..33369c8 100644
  | Training basis | ~2.7M images spanning several thousand community generative models (through 2024), per the paper |
  
  ## Why v2 replaced v1
-@@ -128,6 +129,250 @@ found 3/24 at 95, and adding middle-center raised two of those to the 99 band.
+@@ -128,6 +129,280 @@ found 3/24 at 95, and adding middle-center raised two of those to the 99 band.
  See the evaluation README and JSON artifacts for exact per-asset and per-region
  scores.
  
@@ -3221,6 +3391,36 @@ index d0e5ef6..33369c8 100644
 +  the pixel reading are judgment-set priors, not measured. A validated
 +  AI-origin credential and a trusted capture credential decide the lean
 +  outright.
++
++**Metadata clues.** Besides Content Credentials, `app.js` reads generator
++clues from the file's decoded metadata text (EXIF, XMP, and PNG text fields,
++never the pixel bytes). Each clue adds a judgment-set log-likelihood ratio in
++`decideImageLean`; inside the class only the strongest counts:
++
++| Clue | Log-LR |
++| --- | --- |
++| Generation settings: a PNG `parameters`/`prompt`/`workflow` chunk, or the Stable Diffusion settings line (`Steps: …, Sampler: …` with `CFG scale` or `Seed`) or a ComfyUI node graph in the EXIF user comment or XMP | 3.5 |
++| IPTC digital source type declaring a synthetic origin | 3.0 |
++| China's AI-content label (GB 45438-2025, an `AIGC` field with `Label` and `ContentProducer`): label 1, AI-generated (written by the generation service) | 3.0 |
++| The same label 2, possibly AI-generated (a platform writes it when the uploader declared AI) | 2.0 |
++| The same label 3, suspected AI-generated (a platform suspects it from marks or traces) | 1.0 |
++| A named AI tool (Midjourney, Stable Diffusion, SDXL, DALL·E, Adobe Firefly, OpenAI, NovelAI, ComfyUI, InvokeAI, Fooocus, and others) | 2.5 |
++| Only a name that is also an ordinary word or name (Gemini, Imagen, Ideogram) | 1.0 |
++| A generative step in the edit history | 1.5 |
++
++Tool names count only where a tool records itself (software fields, generator
++text chunks, edit histories), not in captions, titles, keywords, or rights
++notes (XMP free-text fields and the EXIF image description): a news photo
++captioned "OpenAI CEO Sam Altman speaks" is not a generator record. The parser
++turns non-ASCII bytes into spaces, so "DALL·E" is matched with its separator,
++and the Italian word "dalle" no longer counts as a tool name. Of
++the 1,344 AI evaluation images that carry metadata, a clue fires on 772 (769
++before: the settings reader and the label add 2 JPEGs with Stable Diffusion
++settings in the EXIF comment and 1 image with label 2). No clue fires on any
++of the 2,255 real evaluation images with metadata or on the 89 camera photos
++of the public `exif-samples` collection. Most public AI images have
++lost their metadata on the way, so these clues matter most for files straight
++from a generator. See `RESULTS.md`.
 +
  ## Independent second-model candidate
  
@@ -4030,7 +4230,7 @@ index fb8e2b6..afcd06b 100644
        return !workerUnavailable && typeof Worker === "function";
      },
 diff --git a/provenance-verdict.mjs b/provenance-verdict.mjs
-index c61cb26..96cb481 100644
+index c61cb26..561c706 100644
 --- a/provenance-verdict.mjs
 +++ b/provenance-verdict.mjs
 @@ -23,16 +23,20 @@
@@ -4105,7 +4305,46 @@ index c61cb26..96cb481 100644
    "Never use this result alone for discipline, employment, legal, safety, or moderation decisions.",
  ]);
  
-@@ -675,14 +684,14 @@ export function assessImageEvidence(input) {
+@@ -492,6 +501,9 @@ export function assessImageEvidence(input) {
+   const hasC2PA = container.hasC2PA === true && !derivedFromHEIF;
+   const hasExif = container.hasExif === true && !derivedFromHEIF;
+   const generatorTagged = metadata.generatorTagged === true && !derivedFromHEIF;
++  // China's AI-content label (GB 45438-2025): "1" AI-generated, "2" possibly,
++  // "3" suspected AI-generated; "" when absent.
++  const aiContentLabel = derivedFromHEIF ? "" : normalizeString(metadata.aiContentLabel, 1);
+   const capture = gradeCaptureMetadata(derivedFromHEIF ? {} : metadata.exif);
+   const pixel = pixelView(evidence.pixel);
+   const knownGenerator = !!(sourceContext && sourceContext.knownGenerator === true);
+@@ -592,16 +604,24 @@ export function assessImageEvidence(input) {
+      synthetic origin for this file, and a declaration against interest. The
+      inverse is deliberately refused: an unsigned digitalCapture declaration is
+      a self-report in favour of interest and earns no promotion at all. */
+-  if (declarations.declaresAiSource === true) {
++  const labelLine = {
++    "1": "The file's metadata carries China's AI-generated content label (GB 45438-2025), marking it as AI-generated.",
++    "2": "The file's metadata carries China's AI-generated content label (GB 45438-2025), marking it as possibly AI-generated.",
++    "3": "The file's metadata carries China's AI-generated content label (GB 45438-2025), marking it as suspected AI-generated.",
++  }[aiContentLabel];
++  if (declarations.declaresAiSource === true || labelLine) {
++    const declared = declarations.declaresAiSource === true || aiContentLabel === "1";
+     return result({
+       tier: "declared-ai-source-type",
+       lead: "metadata",
+-      headline: "Metadata declares AI origin — unsigned",
++      headline: declared
++        ? "Metadata declares AI origin — unsigned"
++        : "Metadata labels this as possibly AI-generated — unsigned",
+       band: BANDS.DECLARED_GENERATOR_CLUE,
+-      establishes: [
++      establishes: (declarations.declaresAiSource === true ? [
+         "The file's own metadata declares a synthetic digital source type.",
+         "That is a controlled-vocabulary claim about origin, not merely a tool name.",
+-      ],
++      ] : []).concat(labelLine ? [labelLine] : []),
+       doesNotEstablish: withUniversalLimits([
+         "This declaration is not signed, so nothing verifies who wrote it.",
+         "Metadata is freely editable and can be copied onto an unrelated file.",
+@@ -675,14 +695,14 @@ export function assessImageEvidence(input) {
      });
    }
  
@@ -4122,7 +4361,7 @@ index c61cb26..96cb481 100644
        band: BANDS.UNVERIFIED_ORIGIN_MARKER,
        establishes: hasC2PA
          ? ["A C2PA/JUMBF structure is present in the file."]
-@@ -748,9 +757,8 @@ export function assessImageEvidence(input) {
+@@ -748,9 +768,8 @@ export function assessImageEvidence(input) {
          "The on-device model scored this image inside its reviewed high-warning band.",
        ],
        doesNotEstablish: withUniversalLimits(captureConflict.concat([
@@ -4134,7 +4373,7 @@ index c61cb26..96cb481 100644
        ])),
        displayScore: pixel.rawScore,
        pixelCited: true,
-@@ -767,9 +775,8 @@ export function assessImageEvidence(input) {
+@@ -767,9 +786,8 @@ export function assessImageEvidence(input) {
          "The on-device model scored this image inside its reviewed elevated-evidence band.",
        ],
        doesNotEstablish: withUniversalLimits(captureConflict.concat([
@@ -4146,7 +4385,7 @@ index c61cb26..96cb481 100644
        ])),
        displayScore: pixel.rawScore,
        pixelCited: true,
-@@ -817,19 +824,19 @@ export function assessImageEvidence(input) {
+@@ -817,19 +835,19 @@ export function assessImageEvidence(input) {
      });
    }
  
@@ -4173,7 +4412,7 @@ index c61cb26..96cb481 100644
        ]),
        displayScore: null,
        pixelCited: true,
-@@ -960,41 +967,38 @@ export function assessImageEvidence(input) {
+@@ -960,41 +978,38 @@ export function assessImageEvidence(input) {
      });
    }
  
@@ -4225,7 +4464,7 @@ index c61cb26..96cb481 100644
        "Missing credentials and stripped metadata are normal and are not an AI signal.",
      ]),
      displayScore: null,
-@@ -1002,6 +1006,156 @@ export function assessImageEvidence(input) {
+@@ -1002,6 +1017,168 @@ export function assessImageEvidence(input) {
    });
  }
  
@@ -4244,6 +4483,13 @@ index c61cb26..96cb481 100644
 +  // "gemini" and "imagen" are also ordinary words and names in captions.
 +  generatorTaggedAmbiguous: 1.0,
 +  generativeHistoryStep: 1.5,
++  // China's AI-content label (GB 45438-2025). Label 1 is written by the
++  // generation service itself; under the labeling rules a platform writes 2
++  // when the uploader declared the content AI-generated and 3 when it only
++  // suspects so from visible marks or other traces.
++  aiContentLabel: 3.0,
++  aiContentLabelDeclared: 2.0,
++  aiContentLabelSuspected: 1.0,
 +  knownGenerator: 1.5,
 +  validCaptureCredential: -2.5,
 +  exifCorroborated: -1.5,
@@ -4350,6 +4596,11 @@ index c61cb26..96cb481 100644
 +    drivers.push("generator-named");
 +  }
 +  if (declarations.generativeHistoryStep) { origin = Math.max(origin, LEAN_WEIGHTS.generativeHistoryStep); drivers.push("generative-edit-step"); }
++  const aiLabel = heif ? "" : normalizeString(metadata.aiContentLabel, 1);
++  const labelWeight = aiLabel === "1" ? LEAN_WEIGHTS.aiContentLabel
++    : aiLabel === "2" ? LEAN_WEIGHTS.aiContentLabelDeclared
++      : aiLabel === "3" ? LEAN_WEIGHTS.aiContentLabelSuspected : 0;
++  if (labelWeight) { origin = Math.max(origin, labelWeight); drivers.push("ai-content-label"); }
 +  const context = evidence.sourceContext && evidence.sourceContext.knownGenerator === true ? LEAN_WEIGHTS.knownGenerator : 0;
 +  if (context) drivers.push("generator-site");
 +  let capture = 0;
@@ -4382,7 +4633,7 @@ index c61cb26..96cb481 100644
  export const PROVENANCE_TIERS = Object.freeze(TIER_ORDER.slice());
  export const PROVENANCE_BANDS = Object.freeze({ ...BANDS });
  export const PIXEL_BASIS = PIXEL_EVIDENCE_BASIS;
-@@ -1009,6 +1163,8 @@ export const PIXEL_BASIS = PIXEL_EVIDENCE_BASIS;
+@@ -1009,6 +1186,8 @@ export const PIXEL_BASIS = PIXEL_EVIDENCE_BASIS;
  if (typeof window !== "undefined") {
    window.ProvenanceVerdict = Object.freeze({
      assessImageEvidence,

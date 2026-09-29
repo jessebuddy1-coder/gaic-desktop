@@ -190,6 +190,41 @@ limits were 8 MB and 24 MP, which rejected many modern phone photos.
 * The native share-sheet entry keeps its 8 MB cap. It is set in native app
   code outside this runtime (see README).
 
+## Photo metadata clues
+
+Some AI images still carry their generator's own records. GAIC now reads
+three more of them from the file's metadata text:
+
+* **Generation settings in JPEG and WebP.** Stable Diffusion tools write their
+  settings line (`Steps: 30, Sampler: …, CFG scale: 7, Seed: …`) or a ComfyUI
+  node graph into the EXIF comment or XMP. Before, only the PNG form was read.
+* **China's AI-content label** (GB 45438-2025). This label has been mandatory
+  since September 2025 for AI images made or shared through Chinese services.
+  Label 1 (AI-generated) counts like a declared AI source type; labels 2
+  (possibly) and 3 (suspected) count for less.
+* **More tool names**, among them NovelAI, ComfyUI, InvokeAI, Fooocus, and
+  "DALL·E" written with its middle dot. The Italian word "dalle" no longer
+  counts as DALL·E.
+* **No tool names from captions.** A tool name now counts only where a tool
+  records itself (software fields, generator text chunks, edit histories),
+  not in a caption, title, or keyword list. A real news photo captioned
+  "OpenAI CEO Sam Altman speaks…" used to count as naming an AI tool. On the
+  evaluation sets every tool-name hit came from a generator's own record (a
+  ComfyUI node graph), so this change costs nothing measured.
+
+Measured on the evaluation files that carry metadata text or credentials:
+
+| Files with metadata | A metadata clue fires: 2.4.0 | Now |
+| --- | ---: | ---: |
+| AI images (1,344) | 769 | **772** |
+| Real images from the evaluation sets (2,255) | 0 | **0** |
+| Real camera photos from the public `exif-samples` collection (89) | 0 | **0** |
+
+The gain on these sets is small because most public AI images have lost their
+metadata on the way. The clues matter most for files straight from a
+generator. Every clue is unsigned and editable, so each one adds weight to
+the lean rather than deciding it. Script: `eval/metadata_clues.mjs`.
+
 ## Rewriting (writing assist)
 
 The benchmark has 77 reviewed cases: wordy phrases, verb tenses, a/an
@@ -226,6 +261,10 @@ The scanning panel is now a live viewfinder driven by real pipeline events.
 * **Text:** about 1 ms per 260-word passage, and 50 ms for the largest input.
 * **Photos:** the same model runs as before. The decision head is one
   2,304-value dot product per view.
+* **First photo check:** GAIC now starts loading the photo model while a file
+  is being chosen. In the Linux desktop app, with a 3 s pause before Check,
+  the first photo check went from 7.7–8.4 s to 5.1–5.7 s. Later checks took
+  4.4–4.9 s either way.
 * **Browser test timings:**
   * about 10–14 s per photo, including the animation floor
   * about 45 s per 8-frame video on a 4-core test machine
