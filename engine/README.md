@@ -90,7 +90,10 @@ diff against the 2.4.0 runtime. Binary files are not in the patch:
    * **iOS and Android:** `npx cap sync`, then archive and submit.
    * **Windows and macOS:** run the electron-builder release, which regenerates
      `desktop-build-manifest.json`, then upload the installers to this
-     repository's Releases. Without the source repository,
+     repository's Releases. Keep Electron's `locales/en-US.pak` in the Windows
+     build (for example `electronLanguages: ["en-US"]`): the 2.4.0 installer
+     shipped an empty `locales` folder, and on the Windows test machines its
+     page crashed right after the window opened. Without the source repository,
      [desktop/README.md](desktop/README.md) rebuilds both downloads from the
      2.4.0 installers with this update and tests them on real Windows and
      macOS machines.
